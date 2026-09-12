@@ -1,7 +1,7 @@
-# RecallDB API — Python web service on Render
+# Within API — Python web service on Render
 services:
   - type: web
-    name: recalldb-api
+    name: within-api
     runtime: python
     plan: free
     rootDir: backend
@@ -11,9 +11,7 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
+      - key: GROQ_API_KEY
         sync: false
       - key: CORS_ORIGINS
         sync: false
