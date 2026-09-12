@@ -14,3 +14,4 @@ frontend/dist/
 
 # Local Claude Code tooling (skills, launch configs) — not part of the app.
 .claude/
+skills-lock.json
