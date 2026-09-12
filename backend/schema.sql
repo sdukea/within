@@ -1,4 +1,4 @@
--- RecallDB schema. Idempotent: applied on every API startup.
+-- Within schema. Idempotent: applied on every API startup.
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -22,11 +22,35 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     document_id INT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     chunk_index INT NOT NULL,
     content TEXT NOT NULL,
-    embedding VECTOR(1536),
+    embedding VECTOR(384),
     tsv TSVECTOR,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (document_id, chunk_index)
 );
+
+-- One-time migration: older installs embedded with OpenAI text-embedding-3-small
+-- (1536-d). Embeddings now come from a local sentence-transformers model
+-- (384-d), so any legacy vectors are the wrong dimension and wrong space —
+-- they must be regenerated, not cast. Drop the dependent index and the column
+-- data, then let the CREATE INDEX below rebuild against the new dimension.
+-- No-op once the column is already VECTOR(384).
+DO $$
+DECLARE
+    dim int;
+BEGIN
+    SELECT a.atttypmod INTO dim
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    WHERE c.relname = 'document_chunks'
+      AND a.attname = 'embedding'
+      AND a.attnum > 0
+      AND NOT a.attisdropped;
+
+    IF dim IS NOT NULL AND dim <> 384 THEN
+        EXECUTE 'DROP INDEX IF EXISTS document_chunks_embedding_hnsw';
+        EXECUTE 'ALTER TABLE document_chunks ALTER COLUMN embedding TYPE VECTOR(384) USING NULL';
+    END IF;
+END $$;
 
 -- Full-text: GIN over the generated tsvector.
 CREATE INDEX IF NOT EXISTS document_chunks_tsv_gin

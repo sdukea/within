@@ -13,11 +13,10 @@ class Settings(BaseSettings):
     )
 
     database_url: str
-    anthropic_api_key: str
-    openai_api_key: str = ""
+    groq_api_key: str
     cors_origins: str = "http://localhost:5173"
-    anthropic_model: str = "claude-sonnet-4-20250514"
-    embedding_model: str = "text-embedding-3-small"
+    groq_model: str = "openai/gpt-oss-120b"
+    embedding_model: str = "all-MiniLM-L6-v2"
 
 
 settings = Settings()

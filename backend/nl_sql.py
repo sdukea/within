@@ -36,7 +36,7 @@ document_chunks(
   document_id INT REFERENCES documents(id),
   chunk_index INT,
   content TEXT,
-  embedding VECTOR(1536),  -- do not SELECT this unless asked; it is a long vector
+  embedding VECTOR(384),   -- do not SELECT this unless asked; it is a long vector
   tsv TSVECTOR,            -- do not SELECT this unless asked
   created_at TIMESTAMPTZ
 )
@@ -44,7 +44,7 @@ document_chunks(
 Relationships: projects 1—N documents 1—N document_chunks.
 """.strip()
 
-SYSTEM = """You translate questions into a single PostgreSQL SELECT for RecallDB.
+SYSTEM = """You translate questions into a single PostgreSQL SELECT for Within.
 Rules:
 - Output ONLY SQL. No markdown fences, no commentary.
 - One statement. Must be SELECT or WITH ... SELECT.
@@ -116,7 +116,7 @@ def validate_readonly_select(sql: str) -> str:
 
 
 def generate_sql(question: str) -> str:
-    """Ask Claude for a SELECT, then validate it."""
+    """Ask the model for a SELECT, then validate it."""
     user = f"{SCHEMA_FOR_PROMPT}\n\nQuestion:\n{question}"
     raw = complete(SYSTEM, user, max_tokens=512)
     return validate_readonly_select(raw)

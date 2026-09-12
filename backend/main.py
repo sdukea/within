@@ -1,5 +1,6 @@
-"""RecallDB API: the database is the product; Claude is a layer on top."""
+"""Within API: the database is the product; the LLM is a layer on top."""
 
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
@@ -44,7 +45,7 @@ async def lifespan(_app: FastAPI):
     close_pool()
 
 
-app = FastAPI(title="RecallDB", lifespan=lifespan)
+app = FastAPI(title="Within", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
@@ -291,11 +292,23 @@ def retrieve_hybrid(body: TextRetrieveRequest):
 # --- RAG ----------------------------------------------------------------------
 
 
-RAG_SYSTEM = """You answer questions using only the numbered chunks from RecallDB.
-Cite supporting chunks inline as [chunk:<id>].
+RAG_SYSTEM = """You answer questions using only the numbered chunks from Within.
+Cite supporting chunks inline as [chunk:<id>], using plain ASCII square
+brackets exactly like that example — not full-width or CJK bracket
+characters (no （）, 【】, 〔〕, or similar).
 If the chunks are insufficient, say so and do not invent facts.
 Be concise and specific.
 """
+
+# Some models render citation brackets as full-width/CJK punctuation
+# (e.g. "【chunk:7】", "〔chunk:7〕") despite the ASCII instruction above.
+# Normalize any bracket style wrapping "chunk:<id>" back to "[chunk:<id>]"
+# so the frontend's citation-highlighting regex keeps working regardless.
+_CITATION_BRACKETS = re.compile(r"[\[【〔﹝［]\s*chunk:(\d+)\s*[\]】〕﹞］]")
+
+
+def _normalize_citations(text: str) -> str:
+    return _CITATION_BRACKETS.sub(r"[chunk:\1]", text)
 
 
 @app.post("/rag", response_model=RagResponse)
@@ -322,7 +335,7 @@ def rag(body: RagRequest):
         + f"\n\nQuestion: {body.question}"
     )
     try:
-        answer = complete(RAG_SYSTEM, user, max_tokens=1024)
+        answer = _normalize_citations(complete(RAG_SYSTEM, user, max_tokens=1024))
     except Exception as exc:
         raise HTTPException(502, f"LLM failed: {exc}") from exc
 
