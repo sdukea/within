@@ -1,119 +1,236 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { api, type RagResponse } from "./api";
-import { EmptyState, ErrorState, Spinner } from "./Status";
+import { SendIcon } from "./Icons";
+import { ErrorState, Spinner } from "./Status";
 
-type Props = { projectId: number | null };
+type Props = { projectId: number | null; projectName: string | null };
 
-export function AskPanel({ projectId }: Props) {
+type Segment =
+  | { type: "text"; content: string }
+  | { type: "bold"; content: string }
+  | { type: "cite"; number: number; chunkId: number };
+
+/** Splits a plain-text run on **bold** markdown, which small models emit even when told to. */
+function splitBold(text: string): Segment[] {
+  const parts = text.split(/\*\*(.+?)\*\*/g);
+  return parts
+    .map((part, i): Segment | null =>
+      part === "" ? null : { type: i % 2 === 1 ? "bold" : "text", content: part }
+    )
+    .filter((s): s is Segment => s !== null);
+}
+
+function parseAnswer(answer: string): { segments: Segment[]; order: number[] } {
+  const regex = /\[chunk:(\d+)\]/g;
+  const segments: Segment[] = [];
+  const order: number[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(answer))) {
+    if (match.index > lastIndex) segments.push(...splitBold(answer.slice(lastIndex, match.index)));
+    const chunkId = Number(match[1]);
+    let idx = order.indexOf(chunkId);
+    if (idx === -1) {
+      order.push(chunkId);
+      idx = order.length - 1;
+    }
+    segments.push({ type: "cite", number: idx + 1, chunkId });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < answer.length) segments.push(...splitBold(answer.slice(lastIndex)));
+  return { segments, order };
+}
+
+export function AskPanel({ projectId, projectName }: Props) {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RagResponse | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [flash, setFlash] = useState<number | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const citedIds = useMemo(() => {
-    if (!result) return new Set<number>();
-    const ids = [...result.answer.matchAll(/\[chunk:(\d+)\]/g)].map((m) => Number(m[1]));
-    return new Set(ids);
-  }, [result]);
+  const hasStarted = loading || !!result || !!error;
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!question.trim()) return;
+  const { segments, order } = useMemo(
+    () => (result ? parseAnswer(result.answer) : { segments: [], order: [] }),
+    [result]
+  );
+
+  const numberedSources = order
+    .map((chunkId, i) => ({ number: i + 1, citation: result?.citations.find((c) => c.chunk_id === chunkId) }))
+    .filter((s): s is { number: number; citation: NonNullable<typeof s.citation> } => !!s.citation);
+  const otherSources = result?.citations.filter((c) => !order.includes(c.chunk_id)) ?? [];
+
+  async function ask(q: string) {
+    if (!q.trim()) return;
     setLoading(true);
     setError(null);
     try {
-      setResult(await api.rag(question.trim(), projectId));
+      setResult(await api.rag(q.trim(), projectId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "RAG failed");
+      setError(err instanceof Error ? err.message : "Something went wrong.");
       setResult(null);
     } finally {
       setLoading(false);
     }
   }
 
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    ask(question);
+  }
+
+  function goToSource(number: number) {
+    document.getElementById(`source-${number}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    setFlash(number);
+    window.setTimeout(() => setFlash((f) => (f === number ? null : f)), 1100);
+  }
+
   return (
     <div className="flex h-full flex-col">
-      <form onSubmit={onSubmit} className="border-b border-zinc-800 p-4">
-        <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-          Question
-        </label>
-        <div className="flex gap-2">
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask against retrieved chunks…"
-            className="h-9 flex-1 rounded border border-zinc-800 bg-ink-950 px-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={loading || !question.trim()}
-            className="h-9 rounded bg-zinc-100 px-3 text-sm font-medium text-zinc-950 disabled:bg-zinc-800 disabled:text-zinc-500"
-          >
-            Ask
-          </button>
-        </div>
-        <p className="mt-2 text-[11px] text-zinc-600">
-          Hybrid retrieval (full-text + pgvector RRF) → Claude. Scope:{" "}
-          {projectId ? `project #${projectId}` : "all projects"}.
-        </p>
-      </form>
-
-      <div className="flex-1 overflow-y-auto p-4">
-        {loading ? <Spinner label="Retrieving and generating…" /> : null}
-        {error ? <ErrorState message={error} /> : null}
-        {!loading && !error && !result ? (
-          <EmptyState
-            title="No answer yet"
-            body="Hybrid search pulls lexical and semantic hits, then Claude answers only from those chunks. Citations expand to the source text."
-          />
+      <div
+        className={
+          hasStarted
+            ? "border-b border-ink-100 px-8 pb-6"
+            : "flex flex-1 flex-col items-center justify-center px-8 pb-32"
+        }
+      >
+        {!hasStarted ? (
+          <p className="mb-5 font-serif text-[26px] italic text-ink-700">Ask your knowledge.</p>
         ) : null}
-        {result ? (
-          <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
-            <article className="whitespace-pre-wrap text-sm leading-6 text-zinc-200">
-              {result.answer}
-            </article>
-            <aside className="space-y-2">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-                Citations
-              </div>
-              {result.citations.length === 0 ? (
-                <p className="text-xs text-zinc-600">None returned.</p>
-              ) : (
-                result.citations.map((c) => {
-                  const cited = citedIds.has(c.chunk_id);
-                  const open = openId === c.chunk_id;
-                  return (
-                    <button
-                      key={c.chunk_id}
-                      type="button"
-                      onClick={() => setOpenId(open ? null : c.chunk_id)}
-                      className="block w-full rounded border border-zinc-800 bg-ink-900 p-2 text-left hover:border-zinc-700"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-xs font-medium text-zinc-200">
-                          {c.document_title}
-                        </span>
-                        <span className="font-mono text-[10px] text-zinc-500">
-                          #{c.chunk_id}
-                          {cited ? " · cited" : ""}
-                        </span>
-                      </div>
-                      {open ? (
-                        <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-zinc-400">
-                          {c.content}
-                        </p>
-                      ) : (
-                        <p className="mt-1 truncate text-[11px] text-zinc-500">{c.content}</p>
-                      )}
-                    </button>
-                  );
-                })
-              )}
-            </aside>
+        <form onSubmit={onSubmit} className={hasStarted ? "" : "w-full max-w-xl"}>
+          <div
+            className={`flex items-end gap-3 border-b transition-colors duration-150 ${
+              hasStarted ? "border-ink-200 pb-2" : "border-ink-300 pb-3 focus-within:border-ink-950"
+            }`}
+          >
+            <input
+              ref={inputRef}
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+              autoFocus
+              placeholder={
+                projectName ? `Ask anything about ${projectName}…` : "Ask anything about your knowledge…"
+              }
+              className={`min-w-0 flex-1 bg-transparent text-ink-950 placeholder:text-ink-500 focus:outline-none ${
+                hasStarted ? "text-[15px]" : "text-[22px] font-light"
+              }`}
+            />
+            <button
+              type="submit"
+              disabled={loading || !question.trim()}
+              aria-label="Ask"
+              className="mb-0.5 shrink-0 rounded-full p-1.5 text-ink-950 transition-all duration-150 hover:bg-ink-100 active:scale-95 disabled:pointer-events-none disabled:text-ink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              <SendIcon className="h-4 w-4" />
+            </button>
           </div>
+        </form>
+        {!hasStarted ? (
+          <p className="mt-3 text-[12.5px] text-ink-500">
+            Searching {projectName ?? "all projects"}
+          </p>
         ) : null}
       </div>
+
+      {hasStarted ? (
+        <div className="flex-1 overflow-y-auto px-8 py-7">
+          {loading ? <Spinner label="Reading your knowledge…" /> : null}
+          {error ? <ErrorState message={error} /> : null}
+          {result ? (
+            <div className="grid animate-fade-up gap-10 lg:grid-cols-[minmax(0,1fr)_260px]">
+              <article className="min-w-0 max-w-[64ch] font-serif text-[18px] leading-[1.65] text-ink-950">
+                {segments.length === 0 ? (
+                  <p>{result.answer}</p>
+                ) : (
+                  <p className="whitespace-pre-wrap">
+                    {segments.map((seg, i) => {
+                      if (seg.type === "text") return <span key={i}>{seg.content}</span>;
+                      if (seg.type === "bold") return <strong key={i} className="font-medium">{seg.content}</strong>;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => goToSource(seg.number)}
+                          className="relative -top-[0.5em] mx-px rounded-sm font-sans text-[11px] font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                        >
+                          {seg.number}
+                        </button>
+                      );
+                    })}
+                  </p>
+                )}
+              </article>
+
+              {result.citations.length > 0 ? (
+                <aside className="min-w-0">
+                  <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-ink-500">
+                    Sources
+                  </div>
+                  <ol className="space-y-3.5">
+                    {numberedSources.map(({ number, citation: c }) => {
+                      const open = openId === c.chunk_id;
+                      const isFlashing = flash === number;
+                      return (
+                        <li key={c.chunk_id} id={`source-${number}`}>
+                          <button
+                            type="button"
+                            onClick={() => setOpenId(open ? null : c.chunk_id)}
+                            className={`block w-full min-w-0 rounded-md py-1 text-left transition-colors duration-300 ${
+                              isFlashing ? "bg-accent-soft" : "hover:bg-ink-100/60"
+                            }`}
+                          >
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="shrink-0 text-[11px] font-medium text-accent">{number}</span>
+                              <span className="min-w-0 truncate text-[12.5px] font-medium text-ink-700">
+                                {c.document_title}
+                              </span>
+                            </div>
+                            <p
+                              className={`mt-0.5 pl-[18px] text-[12px] leading-relaxed text-ink-500 ${
+                                open ? "whitespace-pre-wrap" : "line-clamp-2"
+                              }`}
+                            >
+                              {c.content}
+                            </p>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+
+                  {otherSources.length > 0 ? (
+                    <>
+                      <div className="mb-2 mt-6 text-[11px] font-medium uppercase tracking-wide text-ink-500">
+                        Also retrieved
+                      </div>
+                      <ul className="space-y-2.5">
+                        {otherSources.map((c) => (
+                          <li key={c.chunk_id} className="min-w-0">
+                            <div className="truncate text-[12.5px] font-medium text-ink-700">
+                              {c.document_title}
+                            </div>
+                            <p className="mt-0.5 line-clamp-1 text-[12px] leading-relaxed text-ink-500">
+                              {c.content}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+                </aside>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
