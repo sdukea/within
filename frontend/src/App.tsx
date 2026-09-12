@@ -3,10 +3,17 @@ import { api, type Document, type Project } from "./api";
 import { AskPanel } from "./AskPanel";
 import { QueryPanel } from "./QueryPanel";
 import { SearchPanel } from "./SearchPanel";
+import { SegmentedControl } from "./SegmentedControl";
 import { Sidebar } from "./Sidebar";
 import { ErrorState } from "./Status";
 
 type Tab = "ask" | "query" | "search";
+
+const TABS: { value: Tab; label: string }[] = [
+  { value: "ask", label: "Ask" },
+  { value: "search", label: "Search" },
+  { value: "query", label: "Query" },
+];
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -16,6 +23,8 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [ingesting, setIngesting] = useState(false);
+
+  const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
 
   const refreshProjects = useCallback(async () => {
     const list = await api.listProjects();
@@ -59,7 +68,7 @@ export default function App() {
   }, [selectedProjectId, refreshDocuments]);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-paper">
       <Sidebar
         projects={projects}
         documents={documents}
@@ -81,7 +90,7 @@ export default function App() {
           try {
             await api.deleteProject(id);
             const list = await refreshProjects();
-            setSelectedProjectId(list[0]?.id ?? null);
+            if (selectedProjectId === id) setSelectedProjectId(list[0]?.id ?? null);
             setLoadError(null);
           } catch (err) {
             setLoadError(err instanceof Error ? err.message : "Delete project failed");
@@ -118,39 +127,19 @@ export default function App() {
         }}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col bg-ink-950">
-        <header className="flex items-center justify-between border-b border-zinc-800 px-4">
-          <nav className="flex gap-1 py-2">
-            {(
-              [
-                ["ask", "Ask"],
-                ["query", "Query"],
-                ["search", "Search"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setTab(id)}
-                className={`rounded px-3 py-1.5 text-sm ${
-                  tab === id ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="font-mono text-[11px] text-zinc-600">
-            {selectedProjectId ? `project_id=${selectedProjectId}` : "no project"}
-          </div>
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center px-8 pb-5 pt-7">
+          <SegmentedControl options={TABS} value={tab} onChange={setTab} />
         </header>
         {loadError ? (
-          <div className="p-4">
+          <div className="px-8">
             <ErrorState message={loadError} />
           </div>
         ) : null}
-        <div className="min-h-0 flex-1">
-          {tab === "ask" ? <AskPanel projectId={selectedProjectId} /> : null}
+        <div key={tab} className="min-h-0 flex-1 animate-fade-in">
+          {tab === "ask" ? (
+            <AskPanel projectId={selectedProjectId} projectName={selectedProject?.name ?? null} />
+          ) : null}
           {tab === "query" ? <QueryPanel /> : null}
           {tab === "search" ? <SearchPanel projectId={selectedProjectId} /> : null}
         </div>

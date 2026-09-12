@@ -1,5 +1,6 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Document, Project } from "./api";
+import { CheckIcon, PlusIcon, TrashIcon } from "./Icons";
 
 type Props = {
   projects: Project[];
@@ -14,6 +15,9 @@ type Props = {
   ingesting: boolean;
 };
 
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper-raised";
+
 export function Sidebar({
   projects,
   documents,
@@ -26,15 +30,32 @@ export function Sidebar({
   loadingProjects,
   ingesting,
 }: Props) {
+  const [addingProject, setAddingProject] = useState(false);
+  const [addingDoc, setAddingDoc] = useState(false);
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
 
+  const nameRef = useRef<HTMLInputElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (addingProject) nameRef.current?.focus();
+  }, [addingProject]);
+
+  useEffect(() => {
+    if (addingDoc) titleRef.current?.focus();
+  }, [addingDoc]);
+
   async function submitProject(e: FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setAddingProject(false);
+      return;
+    }
     await onCreateProject(name.trim());
     setName("");
+    setAddingProject(false);
   }
 
   async function submitDoc(e: FormEvent) {
@@ -43,128 +64,210 @@ export function Sidebar({
     await onIngest(title.trim(), text);
     setTitle("");
     setText("");
+    setAddingDoc(false);
   }
 
   return (
-    <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-zinc-800 bg-ink-900">
-      <div className="border-b border-zinc-800 px-4 py-3">
-        <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
-          Knowledge database
-        </div>
-        <div className="mt-0.5 font-mono text-sm font-medium text-zinc-100">RecallDB</div>
+    <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-ink-100 bg-paper-raised">
+      <div className="px-5 pb-4 pt-7">
+        <div className="font-serif text-[19px] italic tracking-tight text-ink-950">Within</div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-            Projects
-          </h2>
-          {loadingProjects ? (
-            <span className="inline-block h-3 w-3 animate-spin rounded-full border border-zinc-500 border-t-zinc-200" />
-          ) : null}
-        </div>
-        <form onSubmit={submitProject} className="mb-3 flex gap-1.5">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="New project"
-            className="h-8 flex-1 rounded border border-zinc-800 bg-ink-950 px-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
-          />
-          <button
-            type="submit"
-            className="h-8 rounded border border-zinc-700 bg-zinc-800 px-2 text-xs text-zinc-200 hover:bg-zinc-700"
-          >
-            Add
-          </button>
-        </form>
-        <ul className="space-y-0.5">
-          {projects.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                onClick={() => onSelectProject(p.id)}
-                className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm ${
-                  selectedProjectId === p.id
-                    ? "bg-zinc-800 text-zinc-100"
-                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
-                }`}
-              >
-                <span className="truncate">{p.name}</span>
-                <span className="ml-2 font-mono text-[10px] text-zinc-500">{p.document_count}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        {selectedProjectId ? (
-          <button
-            type="button"
-            onClick={() => onDeleteProject(selectedProjectId)}
-            className="mt-2 text-[11px] text-zinc-600 hover:text-red-400"
-          >
-            Delete project
-          </button>
+      <div className="flex-1 overflow-y-auto px-4 pb-6">
+        <SectionHeader
+          label="Projects"
+          busy={loadingProjects}
+          onAdd={() => setAddingProject(true)}
+          addLabel="New project"
+        />
+
+        {addingProject ? (
+          <form onSubmit={submitProject} className="mb-2 flex animate-fade-in items-center gap-1.5">
+            <input
+              ref={nameRef}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => {
+                if (!name.trim()) setAddingProject(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setName("");
+                  setAddingProject(false);
+                }
+              }}
+              placeholder="Project name"
+              className={`h-8 min-w-0 flex-1 rounded-md border border-ink-200 bg-paper-raised px-2.5 text-[13px] text-ink-950 placeholder:text-ink-500 transition-colors duration-150 focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/15`}
+            />
+            <button
+              type="submit"
+              aria-label="Create project"
+              disabled={!name.trim()}
+              className={`shrink-0 rounded-md p-1.5 text-ink-500 transition-colors duration-150 hover:text-ink-950 disabled:pointer-events-none disabled:opacity-30 ${FOCUS_RING}`}
+            >
+              <CheckIcon className="h-3.5 w-3.5" />
+            </button>
+          </form>
         ) : null}
 
-        <h2 className="mb-2 mt-6 text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-          Documents
-        </h2>
-        {!selectedProjectId ? (
-          <p className="text-xs text-zinc-600">Select a project.</p>
-        ) : documents.length === 0 ? (
-          <p className="text-xs text-zinc-600">No documents yet.</p>
-        ) : (
-          <ul className="space-y-1">
-            {documents.map((d) => (
-              <li
-                key={d.id}
-                className="group flex items-start justify-between gap-2 rounded border border-transparent px-2 py-1.5 hover:border-zinc-800 hover:bg-ink-950"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm text-zinc-200">{d.title}</div>
-                  <div className="font-mono text-[10px] text-zinc-500">
-                    {d.chunk_count} chunks
-                  </div>
-                </div>
+        <ul className="mb-6 -mx-1">
+          {projects.map((p) => {
+            const selected = selectedProjectId === p.id;
+            return (
+              <li key={p.id} className="group/row relative">
                 <button
                   type="button"
-                  onClick={() => onDeleteDocument(d.id)}
-                  className="text-[11px] text-zinc-600 opacity-0 hover:text-red-400 group-hover:opacity-100"
+                  onClick={() => onSelectProject(p.id)}
+                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-left text-[13.5px] transition-colors duration-150 ${FOCUS_RING} ${
+                    selected ? "bg-ink-100 text-ink-950 font-medium" : "text-ink-700 hover:bg-ink-100/60"
+                  }`}
                 >
-                  ×
+                  <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                  <span className="font-mono text-[10px] text-ink-500">{p.document_count}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete ${p.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteProject(p.id);
+                  }}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-ink-500 opacity-0 transition-all duration-150 hover:bg-[#fdf3ee] hover:text-[#8a3d1f] group-hover/row:opacity-100 ${FOCUS_RING} ${selected ? "hidden" : ""}`}
+                  tabIndex={-1}
+                >
+                  <TrashIcon className="h-3 w-3" />
                 </button>
               </li>
-            ))}
-          </ul>
+            );
+          })}
+        </ul>
+
+        <SectionHeader
+          label="Documents"
+          onAdd={() => setAddingDoc(true)}
+          addLabel="Add document"
+          disabled={!selectedProjectId}
+        />
+
+        {!selectedProjectId ? (
+          <p className="px-2.5 text-[13px] text-ink-500">Select a project.</p>
+        ) : (
+          <>
+            {addingDoc ? (
+              <form onSubmit={submitDoc} className="mb-3 animate-fade-up space-y-1.5 rounded-lg border border-ink-200 bg-paper p-2.5">
+                <input
+                  ref={titleRef}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setAddingDoc(false);
+                      setTitle("");
+                      setText("");
+                    }
+                  }}
+                  placeholder="Title"
+                  disabled={ingesting}
+                  className="h-7 w-full rounded border border-ink-200 bg-paper-raised px-2 text-[12.5px] text-ink-950 placeholder:text-ink-500 focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-50"
+                />
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Paste source text…"
+                  rows={5}
+                  disabled={ingesting}
+                  className="w-full rounded border border-ink-200 bg-paper-raised px-2 py-1.5 text-[12.5px] leading-relaxed text-ink-950 placeholder:text-ink-500 focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-50"
+                />
+                <div className="flex items-center justify-between pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingDoc(false);
+                      setTitle("");
+                      setText("");
+                    }}
+                    className={`rounded px-1.5 py-1 text-[12px] text-ink-500 hover:text-ink-700 ${FOCUS_RING}`}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={ingesting || !title.trim() || !text.trim()}
+                    className={`flex items-center gap-1.5 rounded-md bg-ink-950 px-3 py-1 text-[12px] font-medium text-white transition-opacity duration-150 hover:opacity-90 active:opacity-80 disabled:cursor-not-allowed disabled:bg-ink-300 ${FOCUS_RING}`}
+                  >
+                    {ingesting ? (
+                      <>
+                        <span className="h-1.5 w-1.5 rounded-full bg-white/80 animate-breathe" />
+                        Adding…
+                      </>
+                    ) : (
+                      "Add"
+                    )}
+                  </button>
+                </div>
+              </form>
+            ) : null}
+
+            {documents.length === 0 && !addingDoc ? (
+              <p className="px-2.5 text-[13px] text-ink-500">No documents yet.</p>
+            ) : (
+              <ul className="-mx-1">
+                {documents.map((d) => (
+                  <li
+                    key={d.id}
+                    className="group/row relative flex items-start gap-2 rounded-md px-2.5 py-[7px] transition-colors duration-150 hover:bg-ink-100/60"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] text-ink-700">{d.title}</div>
+                      <div className="font-mono text-[10px] text-ink-500">{d.chunk_count} chunks</div>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Delete document"
+                      onClick={() => onDeleteDocument(d.id)}
+                      className={`rounded p-1 text-ink-500 opacity-0 transition-all duration-150 hover:bg-[#fdf3ee] hover:text-[#8a3d1f] group-hover/row:opacity-100 ${FOCUS_RING}`}
+                    >
+                      <TrashIcon className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </div>
-
-      <form onSubmit={submitDoc} className="border-t border-zinc-800 p-3">
-        <h2 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-          Add document
-        </h2>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title"
-          disabled={!selectedProjectId || ingesting}
-          className="mb-1.5 h-8 w-full rounded border border-zinc-800 bg-ink-950 px-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none disabled:opacity-40"
-        />
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Paste source text…"
-          rows={6}
-          disabled={!selectedProjectId || ingesting}
-          className="mb-2 w-full rounded border border-zinc-800 bg-ink-950 px-2 py-1.5 text-xs leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none disabled:opacity-40"
-        />
-        <button
-          type="submit"
-          disabled={!selectedProjectId || ingesting || !title.trim() || !text.trim()}
-          className="h-8 w-full rounded bg-zinc-100 text-xs font-medium text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
-        >
-          {ingesting ? "Chunking & embedding…" : "Ingest"}
-        </button>
-      </form>
     </aside>
+  );
+}
+
+function SectionHeader({
+  label,
+  onAdd,
+  addLabel,
+  busy,
+  disabled,
+}: {
+  label: string;
+  onAdd: () => void;
+  addLabel: string;
+  busy?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="mb-1.5 flex items-center justify-between px-2.5 pt-1">
+      <h2 className="text-[11px] font-medium uppercase tracking-wide text-ink-500">{label}</h2>
+      <div className="flex items-center gap-1.5">
+        {busy ? <span className="h-1.5 w-1.5 rounded-full bg-ink-500 animate-breathe" /> : null}
+        <button
+          type="button"
+          aria-label={addLabel}
+          onClick={onAdd}
+          disabled={disabled}
+          className={`rounded p-0.5 text-ink-500 transition-colors duration-150 hover:text-ink-950 disabled:pointer-events-none disabled:opacity-30 ${FOCUS_RING}`}
+        >
+          <PlusIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
   );
 }
