@@ -11,3 +11,6 @@ frontend/node_modules/
 frontend/dist/
 .DS_Store
 .python-version
+
+# Local Claude Code tooling (skills, launch configs) — not part of the app.
+.claude/
