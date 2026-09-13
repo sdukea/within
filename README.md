@@ -1,6 +1,6 @@
 # Within
 
-An AI-native **knowledge database**. The product is PostgreSQL — tables, indexes, `tsvector`, and `pgvector`. The LLM is a capability layered on top of those retrieval primitives, not the other way around.
+An AI-native **knowledge database**. The product is PostgreSQL - tables, indexes, `tsvector`, and `pgvector`. The LLM is a capability layered on top of those retrieval primitives, not the other way around.
 
 This is not a chatbot with a document uploader. You can inspect three retrieval strategies independently, read the SQL they run, fuse them with reciprocal rank fusion, then optionally ask a model to answer — with citations — or to write a `SELECT` against the schema itself.
 
