@@ -53,7 +53,7 @@ SQL filters: `project_id`, title `ILIKE`, `created_at` range. Ordered by recency
 
 Embed the query, then `ORDER BY embedding <=> :q` (pgvector cosine distance). Score is `1 - distance`. Wins when the question uses different words than the author did. Can miss exact tokens and retrieve "about the same topic" chunks that don't actually answer the question.
 
-### 4. Hybrid (`hybrid_retrieve`) - default for RAG
+### 4. Hybrid (`hybrid_retrieve`) – default for RAG
 
 Reciprocal Rank Fusion of the full-text list and the semantic list:
 
