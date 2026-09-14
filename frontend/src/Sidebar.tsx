@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Document, Project } from "./api";
-import { EightballWordmark } from "./EightballMark";
 import { CheckIcon, PlusIcon, TrashIcon, UploadIcon } from "./Icons";
+import { Logo } from "./Logo";
 import { SegmentedControl } from "./SegmentedControl";
 
 type Props = {
@@ -103,8 +103,8 @@ export function Sidebar({
 
   return (
     <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-ink-100 bg-paper-raised">
-      <div className="px-5 pb-4 pt-7">
-        <div className="font-serif text-[19px] italic tracking-tight text-ink-950">Within</div>
+      <div className="px-5 pb-5 pt-6">
+        <Logo className="h-8 w-8 text-ink-950" aria-label="Within" />
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-6">
@@ -315,10 +315,6 @@ export function Sidebar({
             )}
           </>
         )}
-      </div>
-
-      <div className="border-t border-ink-100 px-5 py-3 text-ink-500">
-        <EightballWordmark />
       </div>
     </aside>
   );

@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useRef, useState } from "react";
 import { api, type RagResponse } from "./api";
-import { SendIcon } from "./Icons";
+import { ArrowIcon } from "./Icons";
+import { Logo } from "./Logo";
 import { ErrorState, Spinner } from "./Status";
 
 type Props = { projectId: number | null; projectName: string | null };
@@ -97,7 +98,10 @@ export function AskPanel({ projectId, projectName }: Props) {
         }
       >
         {!hasStarted ? (
-          <p className="mb-5 font-serif text-[26px] italic text-ink-700">Ask your knowledge.</p>
+          <>
+            <Logo className="mb-4 h-9 w-9 text-ink-700" aria-label="Within" />
+            <p className="mb-5 font-serif text-[26px] italic text-ink-700">Ask your knowledge.</p>
+          </>
         ) : null}
         <form onSubmit={onSubmit} className={hasStarted ? "" : "w-full max-w-xl"}>
           <div
@@ -116,9 +120,7 @@ export function AskPanel({ projectId, projectName }: Props) {
                 }
               }}
               autoFocus
-              placeholder={
-                projectName ? `Ask anything about ${projectName}…` : "Ask anything about your knowledge…"
-              }
+              placeholder={projectName ? `What do you want to know about ${projectName}?` : "What do you want to know?"}
               className={`min-w-0 flex-1 bg-transparent text-ink-950 placeholder:text-ink-500 focus:outline-none ${
                 hasStarted ? "text-[15px]" : "text-[22px] font-light"
               }`}
@@ -127,9 +129,9 @@ export function AskPanel({ projectId, projectName }: Props) {
               type="submit"
               disabled={loading || !question.trim()}
               aria-label="Ask"
-              className="mb-0.5 shrink-0 rounded-full p-1.5 text-ink-950 transition-all duration-150 hover:bg-ink-100 active:scale-95 disabled:pointer-events-none disabled:text-ink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white shadow-sm transition-all duration-150 hover:shadow-md hover:brightness-110 active:scale-90 active:brightness-95 disabled:pointer-events-none disabled:bg-ink-200 disabled:text-ink-400 disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
             >
-              <SendIcon className="h-4 w-4" />
+              <ArrowIcon className="h-4 w-4" />
             </button>
           </div>
         </form>

@@ -50,6 +50,23 @@ export function SendIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+/** Ask's submit — a plain diagonal arrow, reserved for the app's one primary action. */
+export function ArrowIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M7 17 17 7M9 7h8v8" />
+    </svg>
+  );
+}
+
 export function TerminalIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <svg
