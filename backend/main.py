@@ -3,13 +3,15 @@
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from db import close_pool, get_conn, init_pool, migrate
+from extract import ExtractionError, extract_text
 from ingest import ingest_document
 from llm import complete
 from nl_sql import SqlValidationError, nl_to_sql
@@ -220,6 +222,37 @@ def delete_document(document_id: int):
 def ingest(body: IngestRequest):
     try:
         result = ingest_document(body.project_id, body.title, body.text, body.source)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, f"Ingestion failed: {exc}") from exc
+    return result
+
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
+
+
+@app.post("/ingest/file", response_model=IngestResponse)
+async def ingest_file(
+    project_id: int = Form(...),
+    title: str | None = Form(None),
+    file: UploadFile = File(...),
+):
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit")
+
+    filename = file.filename or "upload"
+    try:
+        text = extract_text(filename, data)
+    except ExtractionError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    doc_title = (title or "").strip() or Path(filename).stem
+    try:
+        result = ingest_document(project_id, doc_title, text, source=filename)
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
