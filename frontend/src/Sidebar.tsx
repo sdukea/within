@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Document, Project } from "./api";
+import { EightballWordmark } from "./EightballMark";
 import { CheckIcon, PlusIcon, TrashIcon, UploadIcon } from "./Icons";
 import { SegmentedControl } from "./SegmentedControl";
 
@@ -314,6 +315,10 @@ export function Sidebar({
             )}
           </>
         )}
+      </div>
+
+      <div className="border-t border-ink-100 px-5 py-3 text-ink-500">
+        <EightballWordmark />
       </div>
     </aside>
   );
