@@ -3,7 +3,32 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
+
+
+class AuthRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=200)
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    created_at: datetime
+
+
+class TokenResponse(BaseModel):
+    token: str
+    user: UserOut
+
+
+class InteractionOut(BaseModel):
+    id: int
+    project_id: int | None
+    kind: Literal["ask", "search", "query"]
+    request: dict[str, Any]
+    response: dict[str, Any]
+    created_at: datetime
 
 
 class ProjectCreate(BaseModel):
@@ -104,6 +129,10 @@ class RagResponse(BaseModel):
 
 class NlSqlRequest(BaseModel):
     question: str = Field(min_length=1)
+    # Not used to scope the generated SQL (NL-to-SQL reads across the whole
+    # schema, restricted to the caller's own rows by row-level security) —
+    # only to tag which project's history thread this belongs to.
+    project_id: int | None = None
 
 
 class NlSqlResponse(BaseModel):
