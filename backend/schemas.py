@@ -155,3 +155,17 @@ class NlSqlResponse(BaseModel):
     columns: list[str]
     rows: list[dict[str, Any]]
     row_count: int
+
+
+class TableInfo(BaseModel):
+    name: str
+    columns: list[str]
+    row_count: int
+
+
+class TableRows(BaseModel):
+    table: str
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    row_count: int
+    total: int

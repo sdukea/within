@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, clearToken, getToken, setUnauthorizedHandler, type Document, type Project, type User } from "./api";
 import { AskPanel } from "./AskPanel";
+import { DatabaseViewer } from "./DatabaseViewer";
 import { DocumentViewer } from "./DocumentViewer";
+import { DatabaseIcon } from "./Icons";
 import { Login } from "./Login";
 import { QueryPanel } from "./QueryPanel";
 import { SearchPanel } from "./SearchPanel";
@@ -30,6 +32,7 @@ export default function App() {
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [ingesting, setIngesting] = useState(false);
   const [viewingDocument, setViewingDocument] = useState<ViewingDocument | null>(null);
+  const [showDatabase, setShowDatabase] = useState(false);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
 
@@ -192,8 +195,16 @@ export default function App() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center px-8 pb-5 pt-7">
+        <header className="flex items-center justify-between px-8 pb-5 pt-7">
           <SegmentedControl options={TABS} value={tab} onChange={setTab} />
+          <button
+            type="button"
+            onClick={() => setShowDatabase(true)}
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium text-ink-500 transition-colors duration-150 hover:bg-ink-100 hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
+            <DatabaseIcon className="h-3.5 w-3.5" />
+            Database
+          </button>
         </header>
         {loadError ? (
           <div className="px-8">
@@ -223,6 +234,8 @@ export default function App() {
           onClose={() => setViewingDocument(null)}
         />
       ) : null}
+
+      {showDatabase ? <DatabaseViewer onClose={() => setShowDatabase(false)} /> : null}
     </div>
   );
 }

@@ -41,6 +41,8 @@ from schemas import (
     RagResponse,
     RetrieveResponse,
     StructuredRetrieveRequest,
+    TableInfo,
+    TableRows,
     TextRetrieveRequest,
     TokenResponse,
     UserOut,
@@ -544,3 +546,70 @@ def run_nl_sql(body: NlSqlRequest, user_id: int = Depends(get_current_user)):
     )
     _log_interaction(user_id, body.project_id, "query", body.model_dump(mode="json"), response.model_dump(mode="json"))
     return response
+
+
+# --- Database browser -----------------------------------------------------
+#
+# A read-only, whitelisted window onto the underlying tables, for looking at
+# the actual schema rather than just what the app renders. Table names are
+# never interpolated from user input — only these five literal keys are ever
+# used to build a query. `projects`/`documents`/`document_chunks` rely on the
+# same RLS policies as everything else; `interactions` and `users` have no
+# owner column, so they're filtered to the caller's own rows explicitly.
+
+_DB_TABLES: dict[str, list[str]] = {
+    "projects": ["id", "name", "description", "owner_id", "created_at"],
+    "documents": ["id", "project_id", "title", "source", "created_at"],
+    "document_chunks": ["id", "document_id", "chunk_index", "content", "created_at"],
+    "interactions": ["id", "project_id", "user_id", "kind", "request", "response", "created_at"],
+    "users": ["id", "email", "created_at"],
+}
+
+
+def _db_table_scope(table: str, user_id: int) -> tuple[str, tuple]:
+    if table == "interactions":
+        return "WHERE user_id = %s", (user_id,)
+    if table == "users":
+        return "WHERE id = %s", (user_id,)
+    return "", ()
+
+
+@app.get("/db/tables", response_model=list[TableInfo])
+def list_db_tables(user_id: int = Depends(get_current_user)):
+    out = []
+    with get_user_conn(user_id) as conn:
+        for table, columns in _DB_TABLES.items():
+            where, params = _db_table_scope(table, user_id)
+            count = conn.execute(f"SELECT COUNT(*) AS n FROM {table} {where}", params).fetchone()["n"]
+            out.append({"name": table, "columns": columns, "row_count": count})
+    return out
+
+
+@app.get("/db/tables/{table}/rows", response_model=TableRows)
+def get_db_table_rows(
+    table: str,
+    limit: int = 25,
+    offset: int = 0,
+    user_id: int = Depends(get_current_user),
+):
+    if table not in _DB_TABLES:
+        raise HTTPException(404, "Unknown table")
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    columns = _DB_TABLES[table]
+    cols_sql = ", ".join(columns)
+    where, params = _db_table_scope(table, user_id)
+    with get_user_conn(user_id) as conn:
+        total = conn.execute(f"SELECT COUNT(*) AS n FROM {table} {where}", params).fetchone()["n"]
+        rows = conn.execute(
+            f"SELECT {cols_sql} FROM {table} {where} ORDER BY id DESC LIMIT %s OFFSET %s",
+            (*params, limit, offset),
+        ).fetchall()
+    safe_rows = [_jsonable_row(row) for row in rows]
+    return {
+        "table": table,
+        "columns": columns,
+        "rows": safe_rows,
+        "row_count": len(safe_rows),
+        "total": total,
+    }
