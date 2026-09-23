@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # with no BYPASSRLS) still works with one variable.
     database_migration_url: str | None = None
     groq_api_key: str
+    # Free Hugging Face access token (huggingface.co/settings/tokens), used
+    # only to call the hosted embeddings endpoint — see embeddings.py.
+    hf_token: str
     jwt_secret: str
     cors_origins: str = "http://localhost:5173"
     groq_model: str = "openai/gpt-oss-120b"
