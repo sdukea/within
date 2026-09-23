@@ -125,6 +125,24 @@ export default function App() {
             setIngesting(false);
           }
         }}
+        onIngestFile={async (title, file) => {
+          if (!selectedProjectId) return;
+          setIngesting(true);
+          try {
+            await api.ingestFile({
+              project_id: selectedProjectId,
+              title: title || undefined,
+              file,
+            });
+            await refreshDocuments(selectedProjectId);
+            await refreshProjects();
+            setLoadError(null);
+          } catch (err) {
+            setLoadError(err instanceof Error ? err.message : "Ingest failed");
+          } finally {
+            setIngesting(false);
+          }
+        }}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">

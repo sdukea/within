@@ -13,11 +13,13 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
+  const isFormData = init?.body instanceof FormData;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...init,
       headers: {
-        "Content-Type": "application/json",
+        // Let the browser set Content-Type (with boundary) for FormData.
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
         ...(init?.headers ?? {}),
       },
     });
@@ -110,6 +112,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  ingestFile: (payload: { project_id: number; title?: string; file: File }) => {
+    const form = new FormData();
+    form.set("project_id", String(payload.project_id));
+    if (payload.title) form.set("title", payload.title);
+    form.set("file", payload.file);
+    return request<{ document: Document; chunk_count: number }>("/ingest/file", {
+      method: "POST",
+      body: form,
+    });
+  },
   retrieve: (
     mode: "fulltext" | "semantic" | "hybrid",
     payload: { query: string; project_id?: number | null; limit?: number }
