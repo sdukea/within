@@ -11,7 +11,8 @@ This is not a chatbot with a document uploader. You can inspect three retrieval 
 ```
 React studio  →  FastAPI  →  PostgreSQL + pgvector
                      │
-                     ├─ ingest: chunk → embed (local MiniLM, 384-d) → INSERT
+                     ├─ ingest: extract text (paste / PDF / .txt / .md)
+                     │          → chunk → embed (local MiniLM, 384-d) → INSERT
                      ├─ structured / full-text / semantic / hybrid retrieve
                      ├─ RAG: hybrid retrieve → Groq → cited answer
                      └─ NL-to-SQL: Groq → validate SELECT → execute
@@ -34,6 +35,15 @@ React studio  →  FastAPI  →  PostgreSQL + pgvector
 `tsv` is maintained by a `BEFORE INSERT OR UPDATE` trigger from `content`. Application code never writes `tsv` directly. A GIN index sits on `tsv`; an HNSW (cosine) index sits on `embedding`.
 
 Chunking (`backend/chunking.py`): split on blank lines; if a paragraph exceeds ~400 words, sentence-split and pack.
+
+### Ingestion: multimodal input, one text pipeline
+
+Everything ultimately becomes a string before it reaches `chunk_text`. `backend/extract.py` is the seam: it takes a file's bytes and returns plain text, and nothing downstream (chunking, embedding, retrieval) knows or cares where the text came from.
+
+- **Paste** — `POST /ingest` with raw text, as before.
+- **File upload** — `POST /ingest/file` (multipart) accepts `.pdf` (extracted via `pypdf`), `.txt`, and `.md`/`.markdown`. Title defaults to the filename when left blank; `source` is set to the original filename so it's traceable back to its file. 20MB upload limit.
+
+This is deliberately the cheap half of "multimodal": formats that already contain text, or reduce to it. Audio (transcription) and images (OCR/captioning) fit the same seam — an extractor that returns text — without touching `chunking.py`, `embeddings.py`, or `retrieval.py`. True multimodal *embeddings* (e.g. CLIP, so an image is searched as an image, not its caption) are a separate, larger change: a second vector space and a retrieval path that can't reuse `hybrid_retrieve`'s single-embedding RRF as-is.
 
 All queries that take user values use psycopg placeholders (`%s` / `%(name)s`). Nothing concatenates untrusted strings into SQL except the NL-to-SQL path, which only ever runs after a validator accepts a single `SELECT`.
 
@@ -95,7 +105,8 @@ The frontend deliberately doesn't look like a generic SaaS "AI" dashboard. A few
 |---|---|---|
 | GET | `/health` | Liveness |
 | CRUD | `/projects`, `/documents` | Create / list / get / delete |
-| POST | `/ingest` | Chunk, embed, insert |
+| POST | `/ingest` | Chunk, embed, insert (raw text) |
+| POST | `/ingest/file` | Extract text from an uploaded PDF/.txt/.md, then chunk, embed, insert |
 | POST | `/retrieve/structured` | Metadata filter |
 | POST | `/retrieve/fulltext` | `tsvector` search |
 | POST | `/retrieve/semantic` | pgvector search |
@@ -194,10 +205,11 @@ backend/
   llm.py           Groq client (OpenAI-compatible)
   retrieval.py     Four retrieval functions, RRF math
   nl_sql.py        Generate / validate / execute SELECT
+  extract.py       File bytes → plain text (PDF, .txt, .md)
   ingest.py        Chunk → embed → insert
 frontend/
   src/App.tsx          Shell, tab switcher, data loading
-  src/Sidebar.tsx       Projects, documents, progressive-disclosure forms
+  src/Sidebar.tsx       Projects, documents, paste/upload ingest form
   src/AskPanel.tsx      RAG UI, footnote citations
   src/SearchPanel.tsx   Raw retrieval inspector
   src/QueryPanel.tsx    NL-to-SQL UI

@@ -1,15 +1,20 @@
 """Within API: the database is the product; the LLM is a layer on top."""
 
+import json
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from psycopg.types.json import Json
 
+from auth import create_access_token, get_current_user, hash_password, verify_password
 from config import settings
-from db import close_pool, get_conn, init_pool, migrate
+from db import close_pool, get_conn, get_user_conn, init_pool, migrate
+from extract import ExtractionError, extract_text
 from ingest import ingest_document
 from llm import complete
 from nl_sql import SqlValidationError, nl_to_sql
@@ -20,11 +25,14 @@ from retrieval import (
     structured_retrieve,
 )
 from schemas import (
+    AuthRequest,
     Citation,
     DocumentCreate,
+    DocumentDetail,
     DocumentOut,
     IngestRequest,
     IngestResponse,
+    InteractionOut,
     NlSqlRequest,
     NlSqlResponse,
     ProjectCreate,
@@ -33,7 +41,11 @@ from schemas import (
     RagResponse,
     RetrieveResponse,
     StructuredRetrieveRequest,
+    TableInfo,
+    TableRows,
     TextRetrieveRequest,
+    TokenResponse,
+    UserOut,
 )
 
 
@@ -72,27 +84,73 @@ def health():
     return {"status": "ok"}
 
 
+# --- Auth -----------------------------------------------------------------
+
+
+@app.post("/auth/register", response_model=TokenResponse)
+def register(body: AuthRequest):
+    with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM users WHERE email = %s", (body.email,)
+        ).fetchone()
+        if existing is not None:
+            raise HTTPException(409, "An account with that email already exists")
+        user = conn.execute(
+            """
+            INSERT INTO users (email, password_hash)
+            VALUES (%s, %s)
+            RETURNING id, email, created_at
+            """,
+            (body.email, hash_password(body.password)),
+        ).fetchone()
+        conn.commit()
+    return TokenResponse(token=create_access_token(user["id"]), user=user)
+
+
+@app.post("/auth/login", response_model=TokenResponse)
+def login(body: AuthRequest):
+    with get_conn() as conn:
+        user = conn.execute(
+            "SELECT id, email, created_at, password_hash FROM users WHERE email = %s",
+            (body.email,),
+        ).fetchone()
+    if user is None or not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(401, "Incorrect email or password")
+    return TokenResponse(token=create_access_token(user["id"]), user=user)
+
+
+@app.get("/auth/me", response_model=UserOut)
+def me(user_id: int = Depends(get_current_user)):
+    with get_conn() as conn:
+        user = conn.execute(
+            "SELECT id, email, created_at FROM users WHERE id = %s", (user_id,)
+        ).fetchone()
+    if user is None:
+        raise HTTPException(401, "Session no longer valid")
+    return user
+
+
 # --- Projects -----------------------------------------------------------------
 
 
 @app.post("/projects", response_model=ProjectOut)
-def create_project(body: ProjectCreate):
-    with get_conn() as conn:
+def create_project(body: ProjectCreate, user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
         row = conn.execute(
             """
-            INSERT INTO projects (name, description)
-            VALUES (%s, %s)
+            INSERT INTO projects (name, description, owner_id)
+            VALUES (%s, %s, %s)
             RETURNING id, name, description, created_at
             """,
-            (body.name, body.description),
+            (body.name, body.description, user_id),
         ).fetchone()
         conn.commit()
     return {**row, "document_count": 0}
 
 
 @app.get("/projects", response_model=list[ProjectOut])
-def list_projects():
-    with get_conn() as conn:
+def list_projects(user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
         rows = conn.execute(
             """
             SELECT
@@ -108,8 +166,8 @@ def list_projects():
 
 
 @app.get("/projects/{project_id}", response_model=ProjectOut)
-def get_project(project_id: int):
-    with get_conn() as conn:
+def get_project(project_id: int, user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
         row = conn.execute(
             """
             SELECT
@@ -128,8 +186,8 @@ def get_project(project_id: int):
 
 
 @app.delete("/projects/{project_id}")
-def delete_project(project_id: int):
-    with get_conn() as conn:
+def delete_project(project_id: int, user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
         row = conn.execute(
             "DELETE FROM projects WHERE id = %s RETURNING id", (project_id,)
         ).fetchone()
@@ -143,8 +201,8 @@ def delete_project(project_id: int):
 
 
 @app.post("/documents", response_model=DocumentOut)
-def create_document(body: DocumentCreate):
-    with get_conn() as conn:
+def create_document(body: DocumentCreate, user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
         project = conn.execute(
             "SELECT id FROM projects WHERE id = %s", (body.project_id,)
         ).fetchone()
@@ -163,8 +221,8 @@ def create_document(body: DocumentCreate):
 
 
 @app.get("/projects/{project_id}/documents", response_model=list[DocumentOut])
-def list_documents(project_id: int):
-    with get_conn() as conn:
+def list_documents(project_id: int, user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
         rows = conn.execute(
             """
             SELECT
@@ -182,8 +240,8 @@ def list_documents(project_id: int):
 
 
 @app.get("/documents/{document_id}", response_model=DocumentOut)
-def get_document(document_id: int):
-    with get_conn() as conn:
+def get_document(document_id: int, user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
         row = conn.execute(
             """
             SELECT
@@ -201,9 +259,30 @@ def get_document(document_id: int):
     return row
 
 
+@app.get("/documents/{document_id}/content", response_model=DocumentDetail)
+def get_document_content(document_id: int, user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
+        doc = conn.execute(
+            "SELECT id, project_id, title, source, created_at FROM documents WHERE id = %s",
+            (document_id,),
+        ).fetchone()
+        if doc is None:
+            raise HTTPException(404, "Document not found")
+        chunks = conn.execute(
+            """
+            SELECT id, chunk_index, content
+            FROM document_chunks
+            WHERE document_id = %s
+            ORDER BY chunk_index ASC
+            """,
+            (document_id,),
+        ).fetchall()
+    return {**doc, "chunks": chunks}
+
+
 @app.delete("/documents/{document_id}")
-def delete_document(document_id: int):
-    with get_conn() as conn:
+def delete_document(document_id: int, user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
         row = conn.execute(
             "DELETE FROM documents WHERE id = %s RETURNING id", (document_id,)
         ).fetchone()
@@ -217,9 +296,9 @@ def delete_document(document_id: int):
 
 
 @app.post("/ingest", response_model=IngestResponse)
-def ingest(body: IngestRequest):
+def ingest(body: IngestRequest, user_id: int = Depends(get_current_user)):
     try:
-        result = ingest_document(body.project_id, body.title, body.text, body.source)
+        result = ingest_document(user_id, body.project_id, body.title, body.text, body.source)
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
@@ -229,12 +308,99 @@ def ingest(body: IngestRequest):
     return result
 
 
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
+
+
+@app.post("/ingest/file", response_model=IngestResponse)
+async def ingest_file(
+    project_id: int = Form(...),
+    title: str | None = Form(None),
+    file: UploadFile = File(...),
+    user_id: int = Depends(get_current_user),
+):
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit")
+
+    filename = file.filename or "upload"
+    try:
+        text = extract_text(filename, data)
+    except ExtractionError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    doc_title = (title or "").strip() or Path(filename).stem
+    try:
+        result = ingest_document(user_id, project_id, doc_title, text, source=filename)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, f"Ingestion failed: {exc}") from exc
+    return result
+
+
+# --- Interaction history --------------------------------------------------
+
+
+def _log_interaction(
+    user_id: int, project_id: int | None, kind: str, request: dict, response: dict
+) -> None:
+    """Best-effort: a failure to log history should never fail the request
+    that produced it."""
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO interactions (project_id, user_id, kind, request, response)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (
+                    project_id,
+                    user_id,
+                    kind,
+                    Json(_jsonable_payload(request)),
+                    Json(_jsonable_payload(response)),
+                ),
+            )
+            conn.commit()
+    except Exception:
+        pass
+
+
+def _jsonable_payload(payload: Any) -> Any:
+    return json.loads(json.dumps(payload, default=str))
+
+
+@app.get("/projects/{project_id}/history", response_model=list[InteractionOut])
+def get_history(
+    project_id: int,
+    kind: Literal["ask", "search", "query"] | None = None,
+    limit: int = 50,
+    user_id: int = Depends(get_current_user),
+):
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, project_id, kind, request, response, created_at
+            FROM interactions
+            WHERE user_id = %(user_id)s AND project_id = %(project_id)s
+              AND (%(kind)s::text IS NULL OR kind = %(kind)s)
+            ORDER BY created_at DESC
+            LIMIT %(limit)s
+            """,
+            {"user_id": user_id, "project_id": project_id, "kind": kind, "limit": limit},
+        ).fetchall()
+    return rows
+
+
 # --- Retrieval (kept as four distinct routes so each strategy is inspectable) --
 
 
 @app.post("/retrieve/structured", response_model=RetrieveResponse)
-def retrieve_structured(body: StructuredRetrieveRequest):
+def retrieve_structured(body: StructuredRetrieveRequest, user_id: int = Depends(get_current_user)):
     hits = structured_retrieve(
+        user_id,
         project_id=body.project_id,
         title=body.title,
         created_from=body.created_from,
@@ -245,8 +411,9 @@ def retrieve_structured(body: StructuredRetrieveRequest):
 
 
 @app.post("/retrieve/fulltext", response_model=RetrieveResponse)
-def retrieve_fulltext(body: TextRetrieveRequest):
+def retrieve_fulltext(body: TextRetrieveRequest, user_id: int = Depends(get_current_user)):
     hits = fulltext_retrieve(
+        user_id,
         query=body.query,
         project_id=body.project_id,
         title=body.title,
@@ -254,13 +421,15 @@ def retrieve_fulltext(body: TextRetrieveRequest):
         created_to=body.created_to,
         limit=body.limit,
     )
+    _log_interaction(user_id, body.project_id, "search", body.model_dump(mode="json"), {"hits": [_jsonable_row(h) for h in hits], "strategy": "fulltext"})
     return {"hits": hits, "strategy": "fulltext"}
 
 
 @app.post("/retrieve/semantic", response_model=RetrieveResponse)
-def retrieve_semantic(body: TextRetrieveRequest):
+def retrieve_semantic(body: TextRetrieveRequest, user_id: int = Depends(get_current_user)):
     try:
         hits = semantic_retrieve(
+            user_id,
             query=body.query,
             project_id=body.project_id,
             title=body.title,
@@ -270,13 +439,15 @@ def retrieve_semantic(body: TextRetrieveRequest):
         )
     except Exception as exc:
         raise HTTPException(502, f"Semantic retrieval failed: {exc}") from exc
+    _log_interaction(user_id, body.project_id, "search", body.model_dump(mode="json"), {"hits": [_jsonable_row(h) for h in hits], "strategy": "semantic"})
     return {"hits": hits, "strategy": "semantic"}
 
 
 @app.post("/retrieve/hybrid", response_model=RetrieveResponse)
-def retrieve_hybrid(body: TextRetrieveRequest):
+def retrieve_hybrid(body: TextRetrieveRequest, user_id: int = Depends(get_current_user)):
     try:
         hits = hybrid_retrieve(
+            user_id,
             query=body.query,
             project_id=body.project_id,
             title=body.title,
@@ -286,6 +457,7 @@ def retrieve_hybrid(body: TextRetrieveRequest):
         )
     except Exception as exc:
         raise HTTPException(502, f"Hybrid retrieval failed: {exc}") from exc
+    _log_interaction(user_id, body.project_id, "search", body.model_dump(mode="json"), {"hits": [_jsonable_row(h) for h in hits], "strategy": "hybrid"})
     return {"hits": hits, "strategy": "hybrid"}
 
 
@@ -312,17 +484,19 @@ def _normalize_citations(text: str) -> str:
 
 
 @app.post("/rag", response_model=RagResponse)
-def rag(body: RagRequest):
+def rag(body: RagRequest, user_id: int = Depends(get_current_user)):
     try:
-        hits = hybrid_retrieve(body.question, project_id=body.project_id, limit=body.limit)
+        hits = hybrid_retrieve(user_id, body.question, project_id=body.project_id, limit=body.limit)
     except Exception as exc:
         raise HTTPException(502, f"Retrieval failed: {exc}") from exc
 
     if not hits:
-        return RagResponse(
+        response = RagResponse(
             answer="No matching chunks were found. Ingest documents into this project first.",
             citations=[],
         )
+        _log_interaction(user_id, body.project_id, "ask", body.model_dump(mode="json"), response.model_dump(mode="json"))
+        return response
 
     packed = []
     for hit in hits:
@@ -349,22 +523,93 @@ def rag(body: RagRequest):
         )
         for hit in hits
     ]
-    return RagResponse(answer=answer, citations=citations)
+    response = RagResponse(answer=answer, citations=citations)
+    _log_interaction(user_id, body.project_id, "ask", body.model_dump(mode="json"), response.model_dump(mode="json"))
+    return response
 
 
 # --- NL-to-SQL ----------------------------------------------------------------
 
 
 @app.post("/nl-sql", response_model=NlSqlResponse)
-def run_nl_sql(body: NlSqlRequest):
+def run_nl_sql(body: NlSqlRequest, user_id: int = Depends(get_current_user)):
     try:
-        sql, columns, rows = nl_to_sql(body.question)
+        sql, columns, rows = nl_to_sql(body.question, user_id)
     except SqlValidationError as exc:
         raise HTTPException(400, f"Generated SQL rejected: {exc}") from exc
     except Exception as exc:
         raise HTTPException(502, f"NL-to-SQL failed: {exc}") from exc
 
     safe_rows = [_jsonable_row(row) for row in rows]
-    return NlSqlResponse(
+    response = NlSqlResponse(
         sql=sql, columns=columns, rows=safe_rows, row_count=len(safe_rows)
     )
+    _log_interaction(user_id, body.project_id, "query", body.model_dump(mode="json"), response.model_dump(mode="json"))
+    return response
+
+
+# --- Database browser -----------------------------------------------------
+#
+# A read-only, whitelisted window onto the underlying tables, for looking at
+# the actual schema rather than just what the app renders. Table names are
+# never interpolated from user input — only these five literal keys are ever
+# used to build a query. `projects`/`documents`/`document_chunks` rely on the
+# same RLS policies as everything else; `interactions` and `users` have no
+# owner column, so they're filtered to the caller's own rows explicitly.
+
+_DB_TABLES: dict[str, list[str]] = {
+    "projects": ["id", "name", "description", "owner_id", "created_at"],
+    "documents": ["id", "project_id", "title", "source", "created_at"],
+    "document_chunks": ["id", "document_id", "chunk_index", "content", "created_at"],
+    "interactions": ["id", "project_id", "user_id", "kind", "request", "response", "created_at"],
+    "users": ["id", "email", "created_at"],
+}
+
+
+def _db_table_scope(table: str, user_id: int) -> tuple[str, tuple]:
+    if table == "interactions":
+        return "WHERE user_id = %s", (user_id,)
+    if table == "users":
+        return "WHERE id = %s", (user_id,)
+    return "", ()
+
+
+@app.get("/db/tables", response_model=list[TableInfo])
+def list_db_tables(user_id: int = Depends(get_current_user)):
+    out = []
+    with get_user_conn(user_id) as conn:
+        for table, columns in _DB_TABLES.items():
+            where, params = _db_table_scope(table, user_id)
+            count = conn.execute(f"SELECT COUNT(*) AS n FROM {table} {where}", params).fetchone()["n"]
+            out.append({"name": table, "columns": columns, "row_count": count})
+    return out
+
+
+@app.get("/db/tables/{table}/rows", response_model=TableRows)
+def get_db_table_rows(
+    table: str,
+    limit: int = 25,
+    offset: int = 0,
+    user_id: int = Depends(get_current_user),
+):
+    if table not in _DB_TABLES:
+        raise HTTPException(404, "Unknown table")
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    columns = _DB_TABLES[table]
+    cols_sql = ", ".join(columns)
+    where, params = _db_table_scope(table, user_id)
+    with get_user_conn(user_id) as conn:
+        total = conn.execute(f"SELECT COUNT(*) AS n FROM {table} {where}", params).fetchone()["n"]
+        rows = conn.execute(
+            f"SELECT {cols_sql} FROM {table} {where} ORDER BY id DESC LIMIT %s OFFSET %s",
+            (*params, limit, offset),
+        ).fetchall()
+    safe_rows = [_jsonable_row(row) for row in rows]
+    return {
+        "table": table,
+        "columns": columns,
+        "rows": safe_rows,
+        "row_count": len(safe_rows),
+        "total": total,
+    }

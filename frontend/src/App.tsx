@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Document, type Project } from "./api";
+import { api, clearToken, getToken, setUnauthorizedHandler, type Document, type Project, type User } from "./api";
 import { AskPanel } from "./AskPanel";
+import { DatabaseViewer } from "./DatabaseViewer";
+import { DocumentViewer } from "./DocumentViewer";
+import { DatabaseIcon } from "./Icons";
+import { Login } from "./Login";
 import { QueryPanel } from "./QueryPanel";
 import { SearchPanel } from "./SearchPanel";
 import { SegmentedControl } from "./SegmentedControl";
 import { Sidebar } from "./Sidebar";
 import { ErrorState } from "./Status";
+
+type ViewingDocument = { id: number; title: string; highlightChunkId?: number };
 
 type Tab = "ask" | "query" | "search";
 
@@ -16,6 +22,8 @@ const TABS: { value: Tab; label: string }[] = [
 ];
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
@@ -23,8 +31,37 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [ingesting, setIngesting] = useState(false);
+  const [viewingDocument, setViewingDocument] = useState<ViewingDocument | null>(null);
+  const [showDatabase, setShowDatabase] = useState(false);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
+
+  const logout = useCallback(() => {
+    clearToken();
+    setUser(null);
+    setProjects([]);
+    setDocuments([]);
+    setSelectedProjectId(null);
+  }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(logout);
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
+
+  // On first load, a saved token gets verified once against /auth/me rather
+  // than trusted blindly — it may have expired since the last visit.
+  useEffect(() => {
+    if (!getToken()) {
+      setCheckingSession(false);
+      return;
+    }
+    api
+      .me()
+      .then(setUser)
+      .catch(() => clearToken())
+      .finally(() => setCheckingSession(false));
+  }, []);
 
   const refreshProjects = useCallback(async () => {
     const list = await api.listProjects();
@@ -37,6 +74,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     (async () => {
       try {
@@ -55,7 +93,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [refreshProjects]);
+  }, [user, refreshProjects]);
 
   useEffect(() => {
     if (selectedProjectId == null) {
@@ -67,15 +105,26 @@ export default function App() {
     });
   }, [selectedProjectId, refreshDocuments]);
 
+  if (checkingSession) {
+    return <div className="h-full bg-paper" />;
+  }
+
+  if (!user) {
+    return <Login onAuthenticated={setUser} />;
+  }
+
   return (
     <div className="flex h-full bg-paper">
       <Sidebar
+        user={user}
+        onLogout={logout}
         projects={projects}
         documents={documents}
         selectedProjectId={selectedProjectId}
         loadingProjects={loadingProjects}
         ingesting={ingesting}
         onSelectProject={setSelectedProjectId}
+        onOpenDocument={(id, title) => setViewingDocument({ id, title })}
         onCreateProject={async (name) => {
           try {
             const created = await api.createProject(name);
@@ -125,25 +174,68 @@ export default function App() {
             setIngesting(false);
           }
         }}
+        onIngestFile={async (title, file) => {
+          if (!selectedProjectId) return;
+          setIngesting(true);
+          try {
+            await api.ingestFile({
+              project_id: selectedProjectId,
+              title: title || undefined,
+              file,
+            });
+            await refreshDocuments(selectedProjectId);
+            await refreshProjects();
+            setLoadError(null);
+          } catch (err) {
+            setLoadError(err instanceof Error ? err.message : "Ingest failed");
+          } finally {
+            setIngesting(false);
+          }
+        }}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center px-8 pb-5 pt-7">
+        <header className="flex items-center justify-between px-8 pb-5 pt-7">
           <SegmentedControl options={TABS} value={tab} onChange={setTab} />
+          <button
+            type="button"
+            onClick={() => setShowDatabase(true)}
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium text-ink-500 transition-colors duration-150 hover:bg-ink-100 hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
+            <DatabaseIcon className="h-3.5 w-3.5" />
+            Database
+          </button>
         </header>
         {loadError ? (
           <div className="px-8">
             <ErrorState message={loadError} />
           </div>
         ) : null}
-        <div key={tab} className="min-h-0 flex-1 animate-fade-in">
+        <div key={`${tab}-${selectedProjectId ?? "none"}`} className="min-h-0 flex-1 animate-fade-in">
           {tab === "ask" ? (
-            <AskPanel projectId={selectedProjectId} projectName={selectedProject?.name ?? null} />
+            <AskPanel
+              projectId={selectedProjectId}
+              projectName={selectedProject?.name ?? null}
+              onOpenSource={(id, title, chunkId) => setViewingDocument({ id, title, highlightChunkId: chunkId })}
+            />
           ) : null}
-          {tab === "query" ? <QueryPanel /> : null}
+          {tab === "query" ? (
+            <QueryPanel projectId={selectedProjectId} projectName={selectedProject?.name ?? null} />
+          ) : null}
           {tab === "search" ? <SearchPanel projectId={selectedProjectId} /> : null}
         </div>
       </main>
+
+      {viewingDocument ? (
+        <DocumentViewer
+          documentId={viewingDocument.id}
+          documentTitle={viewingDocument.title}
+          highlightChunkId={viewingDocument.highlightChunkId}
+          onClose={() => setViewingDocument(null)}
+        />
+      ) : null}
+
+      {showDatabase ? <DatabaseViewer onClose={() => setShowDatabase(false)} /> : null}
     </div>
   );
 }

@@ -10,7 +10,7 @@ import re
 
 import sqlparse
 
-from db import get_conn
+from db import get_user_conn
 from llm import complete
 
 SCHEMA_FOR_PROMPT = """
@@ -122,9 +122,16 @@ def generate_sql(question: str) -> str:
     return validate_readonly_select(raw)
 
 
-def execute_readonly(sql: str) -> tuple[list[str], list[dict]]:
-    """Run validated SQL in a read-only transaction with a statement timeout."""
-    with get_conn() as conn:
+def execute_readonly(sql: str, user_id: int) -> tuple[list[str], list[dict]]:
+    """Run validated SQL in a read-only transaction with a statement timeout.
+
+    The model wrote this SQL. `get_user_conn` sets the row-level-security
+    session variable before it runs, so even a query that's a valid,
+    innocent-looking SELECT — but omits a WHERE clause the model should
+    have included — still can't return another account's rows. That's
+    enforced by Postgres here, not by anything this function checks.
+    """
+    with get_user_conn(user_id) as conn:
         conn.execute("SET LOCAL statement_timeout = '5000'")
         conn.execute("SET LOCAL transaction_read_only = on")
         result = conn.execute(sql)
@@ -135,8 +142,8 @@ def execute_readonly(sql: str) -> tuple[list[str], list[dict]]:
     return columns, list(rows)
 
 
-def nl_to_sql(question: str) -> tuple[str, list[str], list[dict]]:
+def nl_to_sql(question: str, user_id: int) -> tuple[str, list[str], list[dict]]:
     """Generate, validate, and execute. Returns (sql, columns, rows)."""
     sql = generate_sql(question)
-    columns, rows = execute_readonly(sql)
+    columns, rows = execute_readonly(sql, user_id)
     return sql, columns, rows

@@ -1,5 +1,5 @@
-import { FormEvent, useState } from "react";
-import { api, type ChunkHit } from "./api";
+import { FormEvent, useEffect, useState } from "react";
+import { api, type ChunkHit, type Interaction, type RetrieveResponse } from "./api";
 import { SearchIcon } from "./Icons";
 import { SegmentedControl } from "./SegmentedControl";
 import { EmptyState, ErrorState, Spinner } from "./Status";
@@ -14,25 +14,50 @@ const MODES: { value: Mode; label: string }[] = [
 
 type Props = { projectId: number | null };
 
+type ThreadEntry = { id: string; query: string; strategy: string; hits: ChunkHit[] };
+
 export function SearchPanel({ projectId }: Props) {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<Mode>("hybrid");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hits, setHits] = useState<ChunkHit[] | null>(null);
+  const [thread, setThread] = useState<ThreadEntry[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
+
+  useEffect(() => {
+    setThread([]);
+    setError(null);
+    if (projectId == null) return;
+    setLoadingHistory(true);
+    api
+      .history<{ query: string }, RetrieveResponse>(projectId, "search")
+      .then((rows: Interaction<{ query: string }, RetrieveResponse>[]) => {
+        setThread(
+          rows.map((row) => ({
+            id: String(row.id),
+            query: row.request.query,
+            strategy: row.response.strategy,
+            hits: row.response.hits,
+          }))
+        );
+      })
+      .catch(() => {})
+      .finally(() => setLoadingHistory(false));
+  }, [projectId]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!query.trim()) return;
+    const q = query.trim();
+    if (!q) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await api.retrieve(mode, { query: query.trim(), project_id: projectId, limit: 12 });
-      setHits(res.hits);
+      const res = await api.retrieve(mode, { query: q, project_id: projectId, limit: 12 });
+      setThread((t) => [{ id: `local-${Date.now()}`, query: q, strategy: res.strategy, hits: res.hits }, ...t]);
+      setQuery("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed.");
-      setHits(null);
     } finally {
       setLoading(false);
     }
@@ -66,51 +91,66 @@ export function SearchPanel({ projectId }: Props) {
         <div className="mt-4">
           <SegmentedControl options={MODES} value={mode} onChange={setMode} />
         </div>
-        <p className="mt-3 text-[11.5px] text-ink-500">Scores aren't on the same scale across modes.</p>
+        {loading ? (
+          <div className="mt-3">
+            <Spinner label="Retrieving…" />
+          </div>
+        ) : (
+          <p className="mt-3 text-[11.5px] text-ink-500">Scores aren't on the same scale across modes.</p>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
-        {loading ? <Spinner label="Retrieving…" /> : null}
+        {loadingHistory && thread.length === 0 ? <Spinner label="Loading history…" /> : null}
         {error ? <ErrorState message={error} /> : null}
-        {!loading && !error && hits === null ? (
+        {!loadingHistory && !loading && !error && thread.length === 0 ? (
           <EmptyState
             title="Compare how each strategy sees your knowledge"
             body="Run the same query against full-text, semantic, and hybrid retrieval to see where they agree — and where they don't."
           />
         ) : null}
-        {hits && hits.length === 0 ? (
-          <EmptyState title="No matches" body="Try another query, or ingest more text." />
-        ) : null}
-        {hits && hits.length > 0 ? (
-          <ol className="animate-fade-up max-w-3xl divide-y divide-ink-100">
-            {hits.map((hit) => {
-              const open = openId === hit.chunk_id;
-              return (
-                <li key={hit.chunk_id}>
-                  <button
-                    type="button"
-                    onClick={() => setOpenId(open ? null : hit.chunk_id)}
-                    className="block w-full py-3.5 text-left transition-colors duration-150 hover:bg-ink-100/50"
-                  >
-                    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                      <span className="text-[13.5px] font-medium text-ink-950">{hit.document_title}</span>
-                      <span className="shrink-0 font-mono text-[11px] text-ink-500">
-                        {hit.rank != null ? `#${hit.rank}` : null}
-                        {hit.fulltext_rank != null ? ` · ft ${hit.fulltext_rank}` : ""}
-                        {hit.semantic_rank != null ? ` · sem ${hit.semantic_rank}` : ""}
-                        {" · "}
-                        {hit.score.toFixed(3)}
-                      </span>
-                    </div>
-                    <p className={`mt-1 text-[13px] leading-relaxed text-ink-500 ${open ? "whitespace-pre-wrap" : "line-clamp-2"}`}>
-                      {hit.content}
-                    </p>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        ) : null}
+        <div className="max-w-3xl space-y-8">
+          {thread.map((entry, i) => (
+            <div key={entry.id} className={i > 0 ? "border-t border-ink-100 pt-8" : ""}>
+              <div className="mb-2 flex items-baseline justify-between gap-3">
+                <h2 className="min-w-0 truncate text-[14px] font-medium text-ink-950">{entry.query}</h2>
+                <span className="shrink-0 font-mono text-[11px] text-ink-500">{entry.strategy}</span>
+              </div>
+              {entry.hits.length === 0 ? (
+                <p className="text-[13px] text-ink-500">No matches. Try another query, or ingest more text.</p>
+              ) : (
+                <ol className="divide-y divide-ink-100">
+                  {entry.hits.map((hit) => {
+                    const open = openId === hit.chunk_id;
+                    return (
+                      <li key={hit.chunk_id}>
+                        <button
+                          type="button"
+                          onClick={() => setOpenId(open ? null : hit.chunk_id)}
+                          className="block w-full py-3.5 text-left transition-colors duration-150 hover:bg-ink-100/50"
+                        >
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                            <span className="text-[13.5px] font-medium text-ink-950">{hit.document_title}</span>
+                            <span className="shrink-0 font-mono text-[11px] text-ink-500">
+                              {hit.rank != null ? `#${hit.rank}` : null}
+                              {hit.fulltext_rank != null ? ` · ft ${hit.fulltext_rank}` : ""}
+                              {hit.semantic_rank != null ? ` · sem ${hit.semantic_rank}` : ""}
+                              {" · "}
+                              {hit.score.toFixed(3)}
+                            </span>
+                          </div>
+                          <p className={`mt-1 text-[13px] leading-relaxed text-ink-500 ${open ? "whitespace-pre-wrap" : "line-clamp-2"}`}>
+                            {hit.content}
+                          </p>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

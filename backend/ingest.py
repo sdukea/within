@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from chunking import chunk_text
-from db import get_conn
+from db import get_user_conn
 from embeddings import embed_texts
 
 
 def ingest_document(
-    project_id: int, title: str, text: str, source: str | None = None
+    user_id: int, project_id: int, title: str, text: str, source: str | None = None
 ) -> dict:
     """Create a document and persist its chunks with embeddings.
 
@@ -20,7 +20,7 @@ def ingest_document(
 
     embeddings = embed_texts(chunks)
 
-    with get_conn() as conn:
+    with get_user_conn(user_id) as conn:
         project = conn.execute(
             "SELECT id FROM projects WHERE id = %s", (project_id,)
         ).fetchone()
