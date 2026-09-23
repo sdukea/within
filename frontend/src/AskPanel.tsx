@@ -129,7 +129,7 @@ export function AskPanel({ projectId, projectName }: Props) {
               type="submit"
               disabled={loading || !question.trim()}
               aria-label="Ask"
-              className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white shadow-sm transition-all duration-150 hover:shadow-md hover:brightness-110 active:scale-90 active:brightness-95 disabled:pointer-events-none disabled:bg-ink-200 disabled:text-ink-400 disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+              className="mb-0.5 shrink-0 rounded-full p-1.5 text-ink-950 transition-all duration-150 hover:bg-ink-100 active:scale-95 disabled:pointer-events-none disabled:text-ink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               <ArrowIcon className="h-4 w-4" />
             </button>

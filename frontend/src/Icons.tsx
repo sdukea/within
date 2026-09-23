@@ -34,23 +34,7 @@ export function TrashIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
-export function SendIcon({ className = "h-4 w-4" }: IconProps) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M4 12 20 4l-6.5 16-2.5-7-7-2.5Z" />
-    </svg>
-  );
-}
-
-/** Ask's submit — a plain diagonal arrow, reserved for the app's one primary action. */
+/** Submit icon — a plain diagonal arrow, used by Ask and Query. */
 export function ArrowIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <svg

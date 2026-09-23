@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { api, type NlSqlResponse } from "./api";
-import { SendIcon } from "./Icons";
+import { ArrowIcon } from "./Icons";
 import { ErrorState, Spinner } from "./Status";
 
 export function QueryPanel() {
@@ -59,7 +59,7 @@ export function QueryPanel() {
               aria-label="Run"
               className="mb-0.5 shrink-0 rounded-full p-1.5 text-ink-950 transition-all duration-150 hover:bg-ink-100 active:scale-95 disabled:pointer-events-none disabled:text-ink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
-              <SendIcon className="h-4 w-4" />
+              <ArrowIcon className="h-4 w-4" />
             </button>
           </div>
         </form>
