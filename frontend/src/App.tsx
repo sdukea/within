@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Document, type Project } from "./api";
+import { api, clearToken, getToken, setUnauthorizedHandler, type Document, type Project, type User } from "./api";
 import { AskPanel } from "./AskPanel";
+import { Login } from "./Login";
 import { QueryPanel } from "./QueryPanel";
 import { SearchPanel } from "./SearchPanel";
 import { SegmentedControl } from "./SegmentedControl";
@@ -16,6 +17,8 @@ const TABS: { value: Tab; label: string }[] = [
 ];
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
@@ -25,6 +28,33 @@ export default function App() {
   const [ingesting, setIngesting] = useState(false);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
+
+  const logout = useCallback(() => {
+    clearToken();
+    setUser(null);
+    setProjects([]);
+    setDocuments([]);
+    setSelectedProjectId(null);
+  }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(logout);
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
+
+  // On first load, a saved token gets verified once against /auth/me rather
+  // than trusted blindly — it may have expired since the last visit.
+  useEffect(() => {
+    if (!getToken()) {
+      setCheckingSession(false);
+      return;
+    }
+    api
+      .me()
+      .then(setUser)
+      .catch(() => clearToken())
+      .finally(() => setCheckingSession(false));
+  }, []);
 
   const refreshProjects = useCallback(async () => {
     const list = await api.listProjects();
@@ -37,6 +67,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     (async () => {
       try {
@@ -55,7 +86,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [refreshProjects]);
+  }, [user, refreshProjects]);
 
   useEffect(() => {
     if (selectedProjectId == null) {
@@ -67,9 +98,19 @@ export default function App() {
     });
   }, [selectedProjectId, refreshDocuments]);
 
+  if (checkingSession) {
+    return <div className="h-full bg-paper" />;
+  }
+
+  if (!user) {
+    return <Login onAuthenticated={setUser} />;
+  }
+
   return (
     <div className="flex h-full bg-paper">
       <Sidebar
+        user={user}
+        onLogout={logout}
         projects={projects}
         documents={documents}
         selectedProjectId={selectedProjectId}
@@ -154,11 +195,13 @@ export default function App() {
             <ErrorState message={loadError} />
           </div>
         ) : null}
-        <div key={tab} className="min-h-0 flex-1 animate-fade-in">
+        <div key={`${tab}-${selectedProjectId ?? "none"}`} className="min-h-0 flex-1 animate-fade-in">
           {tab === "ask" ? (
             <AskPanel projectId={selectedProjectId} projectName={selectedProject?.name ?? null} />
           ) : null}
-          {tab === "query" ? <QueryPanel /> : null}
+          {tab === "query" ? (
+            <QueryPanel projectId={selectedProjectId} projectName={selectedProject?.name ?? null} />
+          ) : null}
           {tab === "search" ? <SearchPanel projectId={selectedProjectId} /> : null}
         </div>
       </main>
