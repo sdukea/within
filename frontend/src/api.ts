@@ -158,6 +158,20 @@ export type NlSqlResponse = {
   row_count: number;
 };
 
+export type TableInfo = {
+  name: string;
+  columns: string[];
+  row_count: number;
+};
+
+export type TableRows = {
+  table: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+  total: number;
+};
+
 export type Interaction<Req, Res> = {
   id: number;
   project_id: number | null;
@@ -228,4 +242,7 @@ export const api = {
     }),
   history: <Req, Res>(projectId: number, kind: "ask" | "search" | "query") =>
     request<Interaction<Req, Res>[]>(`/projects/${projectId}/history?kind=${kind}`),
+  dbTables: () => request<TableInfo[]>("/db/tables"),
+  dbTableRows: (table: string, limit: number, offset: number) =>
+    request<TableRows>(`/db/tables/${table}/rows?limit=${limit}&offset=${offset}`),
 };
