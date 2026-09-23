@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, type Interaction, type NlSqlResponse } from "./api";
-import { ArrowIcon } from "./Icons";
+import { ArrowIcon, CheckIcon, CopyIcon } from "./Icons";
 import { ErrorState, Spinner } from "./Status";
 
 type Props = { projectId: number | null; projectName: string | null };
@@ -81,16 +81,21 @@ export function QueryPanel({ projectId, projectName }: Props) {
             </button>
           </div>
         </form>
-        <p className={`text-[12.5px] text-ink-500 ${hasStarted ? "mt-2" : "mt-3"}`}>
-          {hasStarted
-            ? `Scoped to ${projectName ?? "all projects"} — read only.`
-            : "Counts, filters, and joins over projects, documents, and chunks — read only."}
-        </p>
+        {loading ? (
+          <div className="mt-3">
+            <Spinner label="Writing and running SQL…" />
+          </div>
+        ) : (
+          <p className={`text-[12.5px] text-ink-500 ${hasStarted ? "mt-2" : "mt-3"}`}>
+            {hasStarted
+              ? `Scoped to ${projectName ?? "all projects"} — read only.`
+              : "Counts, filters, and joins over projects, documents, and chunks — read only."}
+          </p>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-7">
         {loadingHistory && thread.length === 0 ? <Spinner label="Loading history…" /> : null}
-        {loading ? <Spinner label="Writing and running SQL…" /> : null}
         {error ? <ErrorState message={error} /> : null}
         <div className="space-y-10">
           {thread.map((entry, i) => (
@@ -104,12 +109,59 @@ export function QueryPanel({ projectId, projectName }: Props) {
 
 function QueryEntry({ entry, divider }: { entry: ThreadEntry; divider: boolean }) {
   const { question, response } = entry;
+  const [copied, setCopied] = useState(false);
+
+  async function copySql() {
+    let ok = true;
+    try {
+      await navigator.clipboard.writeText(response.sql);
+    } catch {
+      // Some browsers/contexts restrict the async Clipboard API — fall back
+      // to the legacy execCommand approach via an offscreen textarea.
+      const textarea = document.createElement("textarea");
+      textarea.value = response.sql;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        ok = document.execCommand("copy");
+      } catch {
+        ok = false;
+      }
+      document.body.removeChild(textarea);
+    }
+    if (ok) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    }
+  }
+
   return (
     <article className={divider ? "border-t border-ink-100 pt-10" : ""}>
       <h2 className="mb-4 text-[15px] font-medium text-ink-950">{question}</h2>
       <div className="grid animate-fade-up gap-8 lg:grid-cols-2">
         <div className="min-w-0">
-          <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-500">Generated SQL</div>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-ink-500">Generated SQL</div>
+            <button
+              type="button"
+              onClick={copySql}
+              className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink-500 transition-colors duration-150 hover:bg-ink-100 hover:text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              {copied ? (
+                <>
+                  <CheckIcon className="h-3 w-3 text-accent" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <CopyIcon className="h-3 w-3" />
+                  Copy
+                </>
+              )}
+            </button>
+          </div>
           <pre className="overflow-x-auto whitespace-pre-wrap break-words border-t border-ink-100 pt-3 font-mono text-[12.5px] leading-6 text-ink-700">
             {response.sql}
           </pre>

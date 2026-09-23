@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, clearToken, getToken, setUnauthorizedHandler, type Document, type Project, type User } from "./api";
 import { AskPanel } from "./AskPanel";
+import { DocumentViewer } from "./DocumentViewer";
 import { Login } from "./Login";
 import { QueryPanel } from "./QueryPanel";
 import { SearchPanel } from "./SearchPanel";
 import { SegmentedControl } from "./SegmentedControl";
 import { Sidebar } from "./Sidebar";
 import { ErrorState } from "./Status";
+
+type ViewingDocument = { id: number; title: string; highlightChunkId?: number };
 
 type Tab = "ask" | "query" | "search";
 
@@ -26,6 +29,7 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [ingesting, setIngesting] = useState(false);
+  const [viewingDocument, setViewingDocument] = useState<ViewingDocument | null>(null);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
 
@@ -117,6 +121,7 @@ export default function App() {
         loadingProjects={loadingProjects}
         ingesting={ingesting}
         onSelectProject={setSelectedProjectId}
+        onOpenDocument={(id, title) => setViewingDocument({ id, title })}
         onCreateProject={async (name) => {
           try {
             const created = await api.createProject(name);
@@ -197,7 +202,11 @@ export default function App() {
         ) : null}
         <div key={`${tab}-${selectedProjectId ?? "none"}`} className="min-h-0 flex-1 animate-fade-in">
           {tab === "ask" ? (
-            <AskPanel projectId={selectedProjectId} projectName={selectedProject?.name ?? null} />
+            <AskPanel
+              projectId={selectedProjectId}
+              projectName={selectedProject?.name ?? null}
+              onOpenSource={(id, title, chunkId) => setViewingDocument({ id, title, highlightChunkId: chunkId })}
+            />
           ) : null}
           {tab === "query" ? (
             <QueryPanel projectId={selectedProjectId} projectName={selectedProject?.name ?? null} />
@@ -205,6 +214,15 @@ export default function App() {
           {tab === "search" ? <SearchPanel projectId={selectedProjectId} /> : null}
         </div>
       </main>
+
+      {viewingDocument ? (
+        <DocumentViewer
+          documentId={viewingDocument.id}
+          documentTitle={viewingDocument.title}
+          highlightChunkId={viewingDocument.highlightChunkId}
+          onClose={() => setViewingDocument(null)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -42,11 +42,16 @@ export default {
           "0%, 100%": { opacity: 0.25, transform: "scale(0.85)" },
           "50%": { opacity: 1, transform: "scale(1)" },
         },
+        pop: {
+          "0%": { opacity: 0, transform: "scale(0.96) translateY(4px)" },
+          "100%": { opacity: 1, transform: "scale(1) translateY(0)" },
+        },
       },
       animation: {
         "fade-up": "fade-up .5s cubic-bezier(0.16,1,0.3,1)",
         "fade-in": "fade-in .4s ease-out",
         breathe: "breathe 1.4s ease-in-out infinite",
+        pop: "pop .28s cubic-bezier(0.16,1,0.3,1)",
       },
       transitionTimingFunction: {
         quiet: "cubic-bezier(0.32,0.72,0,1)",

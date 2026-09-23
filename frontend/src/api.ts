@@ -105,6 +105,21 @@ export type Document = {
   chunk_count: number;
 };
 
+export type DocumentChunk = {
+  id: number;
+  chunk_index: number;
+  content: string;
+};
+
+export type DocumentDetail = {
+  id: number;
+  project_id: number;
+  title: string;
+  source: string | null;
+  created_at: string;
+  chunks: DocumentChunk[];
+};
+
 export type ChunkHit = {
   chunk_id: number;
   document_id: number;
@@ -177,6 +192,7 @@ export const api = {
     request<Document[]>(`/projects/${projectId}/documents`),
   deleteDocument: (id: number) =>
     request<{ deleted: boolean }>(`/documents/${id}`, { method: "DELETE" }),
+  documentContent: (id: number) => request<DocumentDetail>(`/documents/${id}/content`),
   ingest: (payload: { project_id: number; title: string; text: string; source?: string }) =>
     request<{ document: Document; chunk_count: number }>("/ingest", {
       method: "POST",

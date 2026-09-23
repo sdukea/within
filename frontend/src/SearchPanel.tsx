@@ -91,12 +91,17 @@ export function SearchPanel({ projectId }: Props) {
         <div className="mt-4">
           <SegmentedControl options={MODES} value={mode} onChange={setMode} />
         </div>
-        <p className="mt-3 text-[11.5px] text-ink-500">Scores aren't on the same scale across modes.</p>
+        {loading ? (
+          <div className="mt-3">
+            <Spinner label="Retrieving…" />
+          </div>
+        ) : (
+          <p className="mt-3 text-[11.5px] text-ink-500">Scores aren't on the same scale across modes.</p>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
         {loadingHistory && thread.length === 0 ? <Spinner label="Loading history…" /> : null}
-        {loading ? <Spinner label="Retrieving…" /> : null}
         {error ? <ErrorState message={error} /> : null}
         {!loadingHistory && !loading && !error && thread.length === 0 ? (
           <EmptyState

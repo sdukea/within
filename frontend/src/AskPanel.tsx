@@ -3,7 +3,11 @@ import { api, type Interaction, type RagResponse } from "./api";
 import { ArrowIcon } from "./Icons";
 import { ErrorState, Spinner } from "./Status";
 
-type Props = { projectId: number | null; projectName: string | null };
+type Props = {
+  projectId: number | null;
+  projectName: string | null;
+  onOpenSource: (documentId: number, documentTitle: string, chunkId: number) => void;
+};
 
 type ThreadEntry = { id: string; question: string; response: RagResponse };
 
@@ -43,7 +47,7 @@ function parseAnswer(answer: string): { segments: Segment[]; order: number[] } {
   return { segments, order };
 }
 
-export function AskPanel({ projectId, projectName }: Props) {
+export function AskPanel({ projectId, projectName, onOpenSource }: Props) {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,18 +131,23 @@ export function AskPanel({ projectId, projectName }: Props) {
             </button>
           </div>
         </form>
-        <p className={`text-[12.5px] text-ink-500 ${hasStarted ? "mt-2" : "mt-3"}`}>
-          Searching {projectName ?? "all projects"}
-        </p>
+        {loading ? (
+          <div className="mt-3">
+            <Spinner label="Reading your knowledge…" />
+          </div>
+        ) : (
+          <p className={`text-[12.5px] text-ink-500 ${hasStarted ? "mt-2" : "mt-3"}`}>
+            Searching {projectName ?? "all projects"}
+          </p>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-8 py-7">
         {loadingHistory && thread.length === 0 ? <Spinner label="Loading history…" /> : null}
-        {loading ? <Spinner label="Reading your knowledge…" /> : null}
         {error ? <ErrorState message={error} /> : null}
         <div className="space-y-10">
           {thread.map((entry, i) => (
-            <AskEntry key={entry.id} entry={entry} divider={i > 0} />
+            <AskEntry key={entry.id} entry={entry} divider={i > 0} onOpenSource={onOpenSource} />
           ))}
         </div>
       </div>
@@ -146,9 +155,16 @@ export function AskPanel({ projectId, projectName }: Props) {
   );
 }
 
-function AskEntry({ entry, divider }: { entry: ThreadEntry; divider: boolean }) {
+function AskEntry({
+  entry,
+  divider,
+  onOpenSource,
+}: {
+  entry: ThreadEntry;
+  divider: boolean;
+  onOpenSource: (documentId: number, documentTitle: string, chunkId: number) => void;
+}) {
   const { id, question, response } = entry;
-  const [openId, setOpenId] = useState<number | null>(null);
   const [flash, setFlash] = useState<number | null>(null);
 
   const { segments, order } = useMemo(() => parseAnswer(response.answer), [response.answer]);
@@ -196,13 +212,12 @@ function AskEntry({ entry, divider }: { entry: ThreadEntry; divider: boolean }) 
             <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-ink-500">Sources</div>
             <ol className="space-y-3.5">
               {numberedSources.map(({ number, citation: c }) => {
-                const open = openId === c.chunk_id;
                 const isFlashing = flash === number;
                 return (
                   <li key={c.chunk_id} id={`source-${id}-${number}`}>
                     <button
                       type="button"
-                      onClick={() => setOpenId(open ? null : c.chunk_id)}
+                      onClick={() => onOpenSource(c.document_id, c.document_title, c.chunk_id)}
                       className={`block w-full min-w-0 rounded-md py-1 text-left transition-colors duration-300 ${
                         isFlashing ? "bg-accent-soft" : "hover:bg-ink-100/60"
                       }`}
@@ -213,11 +228,7 @@ function AskEntry({ entry, divider }: { entry: ThreadEntry; divider: boolean }) 
                           {c.document_title}
                         </span>
                       </div>
-                      <p
-                        className={`mt-0.5 pl-[18px] text-[12px] leading-relaxed text-ink-500 ${
-                          open ? "whitespace-pre-wrap" : "line-clamp-2"
-                        }`}
-                      >
+                      <p className="mt-0.5 line-clamp-2 pl-[18px] text-[12px] leading-relaxed text-ink-500">
                         {c.content}
                       </p>
                     </button>
@@ -234,8 +245,14 @@ function AskEntry({ entry, divider }: { entry: ThreadEntry; divider: boolean }) 
                 <ul className="space-y-2.5">
                   {otherSources.map((c) => (
                     <li key={c.chunk_id} className="min-w-0">
-                      <div className="truncate text-[12.5px] font-medium text-ink-700">{c.document_title}</div>
-                      <p className="mt-0.5 line-clamp-1 text-[12px] leading-relaxed text-ink-500">{c.content}</p>
+                      <button
+                        type="button"
+                        onClick={() => onOpenSource(c.document_id, c.document_title, c.chunk_id)}
+                        className="block w-full min-w-0 rounded-md py-0.5 text-left transition-colors duration-150 hover:bg-ink-100/60"
+                      >
+                        <div className="truncate text-[12.5px] font-medium text-ink-700">{c.document_title}</div>
+                        <p className="mt-0.5 line-clamp-1 text-[12px] leading-relaxed text-ink-500">{c.content}</p>
+                      </button>
                     </li>
                   ))}
                 </ul>
