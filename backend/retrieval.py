@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from embeddings import embed_query
-from db import get_conn
+from db import get_user_conn
 
 RRF_K = 60
 
@@ -79,6 +79,7 @@ def _rows_to_hits(rows: list[dict], score_key: str = "score") -> list[dict]:
 
 
 def structured_retrieve(
+    user_id: int,
     project_id: int | None = None,
     title: str | None = None,
     created_from: datetime | None = None,
@@ -88,7 +89,9 @@ def structured_retrieve(
     """Filter chunks by project, document title substring, and created_at range.
 
     Score is unused (0). Ordering is recency then chunk_index — this is a
-    structured scan, not a relevance ranking.
+    structured scan, not a relevance ranking. Row-level security (via
+    get_user_conn) restricts every result to the caller's own projects
+    plus legacy, ownerless ones — no explicit ownership filter needed here.
     """
     sql = f"""
         {_SELECT},
@@ -99,7 +102,7 @@ def structured_retrieve(
         ORDER BY d.created_at DESC, c.chunk_index ASC
         LIMIT %(limit)s
     """
-    with get_conn() as conn:
+    with get_user_conn(user_id) as conn:
         rows = conn.execute(
             sql,
             _params(project_id, title, created_from, created_to, limit=limit),
@@ -108,6 +111,7 @@ def structured_retrieve(
 
 
 def fulltext_retrieve(
+    user_id: int,
     query: str,
     project_id: int | None = None,
     title: str | None = None,
@@ -130,7 +134,7 @@ def fulltext_retrieve(
         ORDER BY score DESC, c.id ASC
         LIMIT %(limit)s
     """
-    with get_conn() as conn:
+    with get_user_conn(user_id) as conn:
         rows = conn.execute(
             sql,
             _params(
@@ -141,6 +145,7 @@ def fulltext_retrieve(
 
 
 def semantic_retrieve(
+    user_id: int,
     query: str,
     project_id: int | None = None,
     title: str | None = None,
@@ -163,7 +168,7 @@ def semantic_retrieve(
         ORDER BY c.embedding <=> %(embedding)s::vector
         LIMIT %(limit)s
     """
-    with get_conn() as conn:
+    with get_user_conn(user_id) as conn:
         rows = conn.execute(
             sql,
             _params(
@@ -179,6 +184,7 @@ def semantic_retrieve(
 
 
 def hybrid_retrieve(
+    user_id: int,
     query: str,
     project_id: int | None = None,
     title: str | None = None,
@@ -195,10 +201,10 @@ def hybrid_retrieve(
     # Over-fetch so fusion has room to reorder before we cut to `limit`.
     pool_size = max(limit * 4, 20)
     lexical = fulltext_retrieve(
-        query, project_id, title, created_from, created_to, pool_size
+        user_id, query, project_id, title, created_from, created_to, pool_size
     )
     vector = semantic_retrieve(
-        query, project_id, title, created_from, created_to, pool_size
+        user_id, query, project_id, title, created_from, created_to, pool_size
     )
 
     fused: dict[int, dict] = {}
