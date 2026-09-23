@@ -59,6 +59,21 @@ class DocumentOut(BaseModel):
     chunk_count: int = 0
 
 
+class ChunkOut(BaseModel):
+    id: int
+    chunk_index: int
+    content: str
+
+
+class DocumentDetail(BaseModel):
+    id: int
+    project_id: int
+    title: str
+    source: str | None
+    created_at: datetime
+    chunks: list[ChunkOut]
+
+
 class IngestRequest(BaseModel):
     project_id: int
     title: str = Field(min_length=1)

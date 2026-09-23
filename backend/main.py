@@ -28,6 +28,7 @@ from schemas import (
     AuthRequest,
     Citation,
     DocumentCreate,
+    DocumentDetail,
     DocumentOut,
     IngestRequest,
     IngestResponse,
@@ -254,6 +255,27 @@ def get_document(document_id: int, user_id: int = Depends(get_current_user)):
     if row is None:
         raise HTTPException(404, "Document not found")
     return row
+
+
+@app.get("/documents/{document_id}/content", response_model=DocumentDetail)
+def get_document_content(document_id: int, user_id: int = Depends(get_current_user)):
+    with get_user_conn(user_id) as conn:
+        doc = conn.execute(
+            "SELECT id, project_id, title, source, created_at FROM documents WHERE id = %s",
+            (document_id,),
+        ).fetchone()
+        if doc is None:
+            raise HTTPException(404, "Document not found")
+        chunks = conn.execute(
+            """
+            SELECT id, chunk_index, content
+            FROM document_chunks
+            WHERE document_id = %s
+            ORDER BY chunk_index ASC
+            """,
+            (document_id,),
+        ).fetchall()
+    return {**doc, "chunks": chunks}
 
 
 @app.delete("/documents/{document_id}")

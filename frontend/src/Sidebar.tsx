@@ -14,6 +14,7 @@ type Props = {
   onCreateProject: (name: string) => Promise<void>;
   onDeleteProject: (id: number) => Promise<void>;
   onDeleteDocument: (id: number) => Promise<void>;
+  onOpenDocument: (id: number, title: string) => void;
   onIngest: (title: string, text: string) => Promise<void>;
   onIngestFile: (title: string, file: File) => Promise<void>;
   loadingProjects: boolean;
@@ -37,6 +38,7 @@ export function Sidebar({
   onCreateProject,
   onDeleteProject,
   onDeleteDocument,
+  onOpenDocument,
   onIngest,
   onIngestFile,
   loadingProjects,
@@ -161,33 +163,35 @@ export function Sidebar({
           {projects.map((p) => {
             const selected = selectedProjectId === p.id;
             return (
-              <li key={p.id} className="group/row relative">
-                <button
-                  type="button"
-                  onClick={() => onSelectProject(p.id)}
-                  className={`flex w-full items-center gap-1.5 rounded-md py-[7px] pl-1.5 pr-8 text-left text-[13.5px] transition-colors duration-150 ${FOCUS_RING} ${
-                    selected ? "bg-ink-100 text-ink-950 font-medium" : "text-ink-700 hover:bg-ink-100/60"
-                  }`}
-                >
-                  <ChevronDownIcon
-                    className={`h-3 w-3 shrink-0 text-ink-500 transition-transform duration-200 ${
-                      selected ? "rotate-0" : "-rotate-90"
+              <li key={p.id}>
+                <div className="group/row relative">
+                  <button
+                    type="button"
+                    onClick={() => onSelectProject(p.id)}
+                    className={`flex w-full items-center gap-1.5 rounded-md py-[7px] pl-1.5 pr-8 text-left text-[13.5px] transition-colors duration-150 ${FOCUS_RING} ${
+                      selected ? "bg-ink-100 text-ink-950 font-medium" : "text-ink-700 hover:bg-ink-100/60"
                     }`}
-                  />
-                  <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                  <span className="font-mono text-[10px] text-ink-500">{p.document_count}</span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Delete ${p.name}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteProject(p.id);
-                  }}
-                  className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-ink-500 opacity-0 transition-all duration-150 hover:bg-[#fdf3ee] hover:text-[#8a3d1f] group-hover/row:opacity-100 ${FOCUS_RING}`}
-                >
-                  <TrashIcon className="h-3 w-3" />
-                </button>
+                  >
+                    <ChevronDownIcon
+                      className={`h-3 w-3 shrink-0 text-ink-500 transition-transform duration-200 ${
+                        selected ? "rotate-0" : "-rotate-90"
+                      }`}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                    <span className="font-mono text-[10px] text-ink-500">{p.document_count}</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${p.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteProject(p.id);
+                    }}
+                    className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-ink-500 opacity-0 transition-all duration-150 hover:bg-[#fdf3ee] hover:text-[#8a3d1f] group-hover/row:opacity-100 ${FOCUS_RING}`}
+                  >
+                    <TrashIcon className="h-3 w-3" />
+                  </button>
+                </div>
 
                 {/* Accordion: grid-rows trick animates height without measuring it. */}
                 <div
@@ -319,19 +323,25 @@ export function Sidebar({
                       ) : (
                         <ul className="-mx-1">
                           {documents.map((d) => (
-                            <li
-                              key={d.id}
-                              className="group/doc relative flex items-start gap-2 rounded-md px-1.5 py-[6px] transition-colors duration-150 hover:bg-ink-100/60"
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-[12.5px] text-ink-700">{d.title}</div>
-                                <div className="font-mono text-[10px] text-ink-500">{d.chunk_count} chunks</div>
-                              </div>
+                            <li key={d.id} className="group/doc relative">
+                              <button
+                                type="button"
+                                onClick={() => onOpenDocument(d.id, d.title)}
+                                className={`flex w-full items-start gap-2 rounded-md px-1.5 py-[6px] pr-8 text-left transition-colors duration-150 hover:bg-ink-100/60 ${FOCUS_RING}`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-[12.5px] text-ink-700">{d.title}</div>
+                                  <div className="font-mono text-[10px] text-ink-500">{d.chunk_count} chunks</div>
+                                </div>
+                              </button>
                               <button
                                 type="button"
                                 aria-label="Delete document"
-                                onClick={() => onDeleteDocument(d.id)}
-                                className={`rounded p-1 text-ink-500 opacity-0 transition-all duration-150 hover:bg-[#fdf3ee] hover:text-[#8a3d1f] group-hover/doc:opacity-100 ${FOCUS_RING}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteDocument(d.id);
+                                }}
+                                className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-ink-500 opacity-0 transition-all duration-150 hover:bg-[#fdf3ee] hover:text-[#8a3d1f] group-hover/doc:opacity-100 ${FOCUS_RING}`}
                               >
                                 <TrashIcon className="h-3 w-3" />
                               </button>
